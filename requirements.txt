@@ -1,0 +1,12 @@
+# Core
+pandas
+numpy
+scikit-learn
+matplotlib
+joblib
+
+# NLP preprocessing
+nltk
+
+# Web application
+streamlit
