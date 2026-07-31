@@ -6,6 +6,7 @@ evaluate -> save the model. Keeps each member's file focused on just their model
 """
 
 import os
+import time
 import joblib
 from .common import prepare_data
 from .evaluate import evaluate_model, save_result
@@ -16,10 +17,16 @@ def train_and_save(model_name, pipeline, model_path, sample=None):
     X_train, X_test, y_train, y_test, labels = prepare_data(sample=sample)
 
     print(f"\nTraining {model_name} ...")
+    t0 = time.time()
     pipeline.fit(X_train, y_train)
+    train_time = time.time() - t0
 
+    t0 = time.time()
     y_pred = pipeline.predict(X_test)
-    result = evaluate_model(model_name, y_test.values, y_pred, labels)
+    predict_time = time.time() - t0
+
+    result = evaluate_model(model_name, y_test.values, y_pred, labels,
+                            train_time=train_time, predict_time=predict_time)
     save_result(result)
 
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
