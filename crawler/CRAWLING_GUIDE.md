@@ -17,7 +17,7 @@ Retrain.
 | **Reddit** (official API) | ⚠️ Usable, but slow to set up | As of Nov 2025, Reddit requires manual pre-approval for API access — even the free tier — which can take **2–4 weeks**. Apply early if you want this. |
 | **Existing Reddit datasets on Kaggle** | ✅ Fast alternative | A pre-collected r/malaysia dataset already exists on Kaggle (search "Reddit r/Malaysia Subreddit Dataset") — skips the approval wait entirely |
 | **Public forums / news comments** (generic crawler) | ⚠️ Case-by-case | Only if the site's `robots.txt` allows it AND their Terms of Service don't prohibit it. Check both yourself before crawling any specific site. |
-| **Facebook, Instagram, X/Twitter, TikTok** | ❌ Do not scrape | Their Terms of Service explicitly prohibit automated data collection, and they block it technically. This isn't just a policy choice here — it's a real legal/ToS risk for you as a student. If you need comments from these platforms, copy them manually into the app's Text Detection page (small amounts only, for demo purposes). |
+| **Facebook, Instagram, X/Twitter, TikTok** | ❌ Do not scrape | Their Terms of Service explicitly prohibit automated data collection, and they block it technically. This isn't just a policy choice here — it's a real legal/ToS risk for you as a student. If you need comments from these platforms, copy them manually into the app's Cyberbully Detection → Enter Comment tab (small amounts only, for demo purposes). |
 
 **Why this matters for your assignment specifically:** the marking scheme
 checks for originality and academic integrity. Scraper code that breaches a
@@ -107,6 +107,10 @@ Crawled comments have no labels yet — you have to decide, per comment,
 whether it's abusive and what it targets. This is normal for a hate-speech
 dataset and is genuine, gradeable work for your documentation.
 
+**You do not need to label everything you crawled.** Even 50–100 labeled
+comments is a legitimate, honest extension — label an amount that fits your
+timeline, not everything you collected.
+
 ```bash
 streamlit run crawler/annotate_data.py
 ```
@@ -118,10 +122,15 @@ streamlit run crawler/annotate_data.py
 - Click **"Skip"** for anything you're unsure about or can't read (e.g.
   heavy slang, mixed language you're not confident on) — better to skip than
   guess.
-- Progress saves after every comment, so you can close it and resume anytime.
-- **Split the work across your group** — e.g. each member takes a different
-  raw file, or you divide one file into thirds beforehand. Aim for at least a
-  few hundred labeled comments to make a real difference.
+- Progress saves after **every single comment**, so you can close it and
+  resume anytime.
+- **Split the work across your group.** Progress saves to the same output
+  file after each comment, and the tool automatically skips anything already
+  labeled — so one member can label 50, close it, and a teammate opens the
+  same file afterwards and continues exactly where it was left off, with no
+  overlap or duplicates. Just make sure everyone works from the same copy of
+  the file (e.g. push to GitHub after your batch, teammate pulls before
+  starting theirs).
 
 Output: `data/crawled/<name>_labeled.csv`, already in the format the rest of
 the project expects.
@@ -170,9 +179,18 @@ group personally labeled.
   comments won't shift a 20,000-row dataset much — the more you label, the
   more it actually influences the trained model. Track this before/after in
   `merge_datasets.py`'s printed label counts.
-- **Language note:** the existing preprocessing pipeline (`src/preprocessing.py`)
-  is built for English text (English stopwords, English lemmatizer). Malay and
-  Manglish text will still get cleaned (URLs/punctuation stripped, etc.) but
-  won't be stemmed/lemmatized correctly — worth mentioning as a limitation, or
-  as a "future work" item if your group wants to extend it further with a
-  Malay-language NLP library.
+- **Language note (measured, not just theoretical):** the current models were
+  trained on English HateXplain data, so their TF-IDF vocabulary is almost
+  entirely English. Testing the trained Logistic Regression model on genuine
+  Malay insults showed only ~14% of the comment's words were even recognized,
+  and it confidently (but wrongly) predicted "not abusive" both times. This is
+  exactly why manually labeling real Malay/Manglish comments — not just
+  running them through the existing model — is the part of this pipeline that
+  actually matters. It's also a legitimate, citable limitation for your
+  report: "the baseline model has near-zero signal on Malay-language input,
+  which is precisely the gap this data collection effort addresses."
+- **Preprocessing is English-tuned**, too (`src/preprocessing.py` uses English
+  stopwords and an English lemmatizer). Malay/Manglish text still gets basic
+  cleaning (URLs/punctuation stripped) but won't be stemmed/lemmatized
+  correctly — worth flagging as a limitation, or as a "future work" item if
+  your group wants to extend it with a Malay-language NLP library.
