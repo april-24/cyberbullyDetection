@@ -27,9 +27,10 @@ def main():
 
     df = pd.read_csv(SCORES)
     # Order columns nicely
-    cols = ["model", "subset_accuracy", "hamming_loss",
-            "f1_micro", "f1_macro",
-            "precision_micro", "recall_micro"]
+    cols = ["model", "accuracy", "subset_accuracy", "hamming_loss",
+            "f1_micro", "f1_macro", "f1_weighted",
+            "precision_micro", "recall_micro",
+            "train_time_sec", "predict_time_sec"]
     df = df[[c for c in cols if c in df.columns]]
 
     print("\n================  MODEL COMPARISON  ================\n")
