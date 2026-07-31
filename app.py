@@ -5,11 +5,12 @@ Streamlit application. Run from the project root:
 
     streamlit run app.py
 
-Pages (top navigation bar): Home | Text Detection | Social Media |
-       Batch File | Model Comparison | Dataset Statistics | Model Evaluation
+Pages (top navigation bar): Home | Dataset Statistics | Data Preprocessing |
+       Cyberbully Detection | Model Evaluation
 """
 
 import os
+import re
 import time
 import numpy as np
 import pandas as pd
@@ -21,79 +22,57 @@ import matplotlib.pyplot as plt
 from src.config import LABELS, pretty, SCORES_CSV, DATA_DIR
 from src.predictor import (available_models, load_model, predict,
                            explain, highlight_html, _label_probs)
-from src.preprocessing import clean_text
+from src.preprocessing import clean_text, clean_text_steps
 from src import social
 
 st.set_page_config(page_title="CyberShield", page_icon="🛡️", layout="wide")
 
-DEFAULT_THRESHOLD = 0.60   # see README: reduces false positives on benign text
-PAGES = ["Home", "Text Detection", "Social Media Detection", "Batch File Detection",
-         "Model Comparison", "Dataset Statistics", "Model Evaluation"]
-PAGE_ICONS = {"Home": "🏠", "Text Detection": "📝", "Social Media Detection": "🌐",
-              "Batch File Detection": "📁", "Model Comparison": "⚖️",
-              "Dataset Statistics": "📊", "Model Evaluation": "📈"}
+DEFAULT_THRESHOLD = 0.60
+PAGES = ["Home", "Dataset Statistics", "Data Preprocessing",
+         "Cyberbully Detection", "Model Evaluation"]
 
+MODEL_INFO = {
+    "Logistic Regression": {
+        "feature_method": "TF-IDF (unigrams + bigrams, 30,000 features)",
+        "algorithm_type": "Linear classifier (One-vs-Rest, one per label)",
+        "note": "Fast, well-calibrated probabilities, easy to interpret.",
+    },
+    "Linear SVM": {
+        "feature_method": "TF-IDF (unigrams + bigrams, 30,000 features)",
+        "algorithm_type": "Maximum-margin linear classifier (One-vs-Rest)",
+        "note": "Strong on high-dimensional sparse text; no native probability output.",
+    },
+    "Random Forest": {
+        "feature_method": "TF-IDF (unigrams, 8,000 features)",
+        "algorithm_type": "Ensemble of decision trees (One-vs-Rest)",
+        "note": "Captures non-linear word combinations; slower to train/predict.",
+    },
+}
+
+# Minimal, website-style top navigation: plain text links, not big colored buttons.
 NAVBAR_CSS = """
 <style>
-/* Bigger, easier-to-click buttons everywhere (nav row + in-page buttons) */
-div.stButton > button {
-    font-size: 16px;
-    font-weight: 600;
-    padding: 0.55rem 0.4rem;
-    border-radius: 8px;
-    width: 100%;
+div[data-testid="stHorizontalBlock"] div.stButton > button {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #444 !important;
+    font-size: 15px !important;
+    padding: 6px 10px !important;
+    width: auto !important;
 }
-/* Slightly larger top padding so the nav bar breathes like a real navbar */
-div[data-testid="stHorizontalBlock"] { gap: 0.4rem; }
+div[data-testid="stHorizontalBlock"] div.stButton > button:hover {
+    color: #000 !important;
+    text-decoration: underline !important;
+}
+div[data-testid="stHorizontalBlock"] div.stButton > button p {
+    font-size: 15px !important;
+}
 </style>
 """
 
-PAGE_GUIDES = {
-    "Home": None,
-    "Text Detection": (
-        "**What this page does:** analyse one comment, or paste several "
-        "(one per line) to check them all at once.\n\n"
-        "**How to use it:** type or paste your comment(s) → click **Load "
-        "example** if you want a quick demo instead → click **Analyze**. "
-        "For a single comment you'll get a full breakdown (confidence, "
-        "highlighted words, explanation, suggested action). For multiple "
-        "comments you'll get a summary table and charts you can download."
-    ),
-    "Social Media Detection": (
-        "**What this page does:** pulls public comments from a YouTube "
-        "video or Reddit thread and analyses all of them at once.\n\n"
-        "**How to use it:** paste a video/thread URL → click **Fetch "
-        "comments** (or use **Demo comments** if you don't want to set up "
-        "an API key) → click **Analyze comments**."
-    ),
-    "Batch File Detection": (
-        "**What this page does:** analyse many comments at once from a "
-        "file you already have.\n\n"
-        "**How to use it:** upload a CSV (pick which column holds the "
-        "text) or a TXT file (one comment per line) → click **Analyze "
-        "file** → download the full results as CSV."
-    ),
-    "Model Comparison": (
-        "**What this page does:** runs the *same* comment through all "
-        "three models so you can see where they agree or disagree.\n\n"
-        "**How to use it:** type a comment → click **Compare models**."
-    ),
-    "Dataset Statistics": (
-        "**What this page does:** shows what's inside the training data — "
-        "size, category balance, comment lengths, and common words. No "
-        "input needed, just browse."
-    ),
-    "Model Evaluation": (
-        "**What this page does:** the formal accuracy numbers (Accuracy, "
-        "Precision, Recall, F1) for each model, plus confusion matrices.\n\n"
-        "**How to use it:** the score table and F1 chart load automatically. "
-        "Click **Compute confusion matrices** to see per-category detail "
-        "for the model selected above."
-    ),
-}
 
-
-# ---------------------------------------------------------------- helpers
+# ============================================================== helpers
 @st.cache_resource(show_spinner=False)
 def get_model(path):
     return load_model(path)
@@ -107,7 +86,6 @@ def get_dataset():
 
 
 def analyze_many(bundle, texts, threshold):
-    """Analyze a list of comments -> DataFrame of results."""
     cleaned = [clean_text(t) for t in texts]
     P = _label_probs(bundle["pipeline"], cleaned)
     labels = bundle["labels"]
@@ -126,12 +104,10 @@ def analyze_many(bundle, texts, threshold):
 
 
 def suggested_action(res):
-    """Plain-English 'what should I do about this' guidance for one comment."""
     if not res["is_bully"]:
         return ("✅ **No action needed.** This comment doesn't cross the "
                 "detection threshold. If the conversation continues, it may "
                 "be worth a quick re-check later, especially if the tone shifts.")
-
     top_conf = max(res["probs"].values())
     cats = [pretty(l) for l in res["flagged"] if l != "abusive"]
     lines = []
@@ -162,7 +138,6 @@ def suggested_action(res):
 
 
 def batch_suggestion(df):
-    """Plain-English guidance for a batch of analysed comments."""
     n = len(df)
     n_bad = int((df["Cyberbullying"] == "YES").sum())
     if n == 0:
@@ -185,7 +160,6 @@ def batch_suggestion(df):
 
 
 def result_card(res, threshold, model_name, elapsed, original_text):
-    """Render one prediction result nicely."""
     if res["is_bully"]:
         st.error("### ⚠️ CYBERBULLYING DETECTED")
     else:
@@ -223,7 +197,6 @@ def result_card(res, threshold, model_name, elapsed, original_text):
 
 
 def summary_charts(df):
-    """Pie + bar charts summarising a batch of results."""
     c1, c2 = st.columns(2)
     with c1:
         counts = df["Cyberbullying"].value_counts()
@@ -241,16 +214,7 @@ def summary_charts(df):
         st.pyplot(fig); plt.close(fig)
 
 
-def page_guide(page_name):
-    """Optional per-page 'how to use this' expander."""
-    text = PAGE_GUIDES.get(page_name)
-    if text:
-        with st.expander("ℹ️ How to use this page"):
-            st.markdown(text)
-
-
 def page_controls(show_model=True, show_threshold=True, key_prefix=""):
-    """Inline model/threshold controls - only rendered on pages that use them."""
     n = sum([show_model, show_threshold])
     if n == 0:
         return
@@ -260,25 +224,74 @@ def page_controls(show_model=True, show_threshold=True, key_prefix=""):
     if show_model:
         with cols[i]:
             st.session_state.sel_model = st.selectbox(
-                "🤖 Model", models_list,
+                "Model", models_list,
                 index=models_list.index(st.session_state.sel_model),
-                key=f"{key_prefix}_model")
+                key=f"{key_prefix}_model",
+                help="Choose which trained model performs the detection.")
         i += 1
     if show_threshold:
         with cols[i]:
             st.session_state.sel_threshold = st.slider(
-                "🎚️ Detection sensitivity", 0.30, 0.90,
+                "Detection sensitivity", 0.30, 0.90,
                 st.session_state.sel_threshold, 0.05, key=f"{key_prefix}_threshold",
                 help="Lower = flags more comments (higher recall). Higher = "
-                     "stricter (higher precision). Reported metrics use the "
-                     "standard 0.50.")
-    st.divider()
+                     "stricter (higher precision). Reported metrics use 0.50.")
+    st.write("")
 
 
-# ---------------------------------------------------------------- top navbar
+def detect_quality_issues(df, text_col):
+    """Flag empty / too-short / repeated-character 'noisy' comments."""
+    texts = df[text_col].astype(str)
+    empty = texts.str.strip().eq("").sum()
+    too_short = (texts.str.split().apply(len) <= 2).sum()
+    repeated = texts.str.contains(r"(.)\1{3,}", regex=True, na=False).sum()
+    duplicates = df.duplicated(subset=[text_col]).sum()
+    missing = df[text_col].isna().sum()
+    return {
+        "Missing (null) comments": int(missing),
+        "Empty / blank comments": int(empty),
+        "Extremely short (<=2 words)": int(too_short),
+        "Repeated-character spam (e.g. 'aaaaaa')": int(repeated),
+        "Duplicate comments": int(duplicates),
+    }
+
+
+def render_workflow_diagram():
+    stages = ["Raw Text", "Text Cleaning", "Tokenization", "Stopword\nRemoval",
+              "Lemmatization", "Feature\nExtraction\n(TF-IDF)", "Classification",
+              "Prediction"]
+    boxes = "".join(
+        f"<div style='display:inline-block;padding:10px 14px;margin:4px;"
+        f"border:1px solid #ccc;border-radius:8px;background:#fafafa;"
+        f"font-size:13px;text-align:center;white-space:pre-line'>{s}</div>"
+        + ("<span style='margin:0 4px;color:#999'>&#8594;</span>" if i < len(stages)-1 else "")
+        for i, s in enumerate(stages)
+    )
+    st.markdown(f"<div style='line-height:2.6'>{boxes}</div>", unsafe_allow_html=True)
+
+
+def render_wordcloud(text_series):
+    """Render a word cloud image; falls back to a note if the wordcloud
+    package isn't installed (pip install wordcloud)."""
+    try:
+        from wordcloud import WordCloud
+    except ImportError:
+        st.info("Install the `wordcloud` package to see this visualization: "
+               "`pip install wordcloud` (already listed in requirements.txt). "
+               "Showing the frequent-words bar chart below instead.")
+        return False
+    text = " ".join(text_series.astype(str))
+    wc = WordCloud(width=900, height=350, background_color="white",
+                   colormap="Reds", max_words=100).generate(text)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.imshow(wc, interpolation="bilinear")
+    ax.axis("off")
+    st.pyplot(fig); plt.close(fig)
+    return True
+
+
+# ============================================================== top navbar
 st.markdown(NAVBAR_CSS, unsafe_allow_html=True)
-
-st.markdown("## 🛡️ CyberShield")
 
 MODELS = available_models()
 if not MODELS:
@@ -295,257 +308,474 @@ if "sel_model" not in st.session_state:
 if "sel_threshold" not in st.session_state:
     st.session_state.sel_threshold = DEFAULT_THRESHOLD
 
-nav_cols = st.columns(len(PAGES))
+logo_col, *nav_cols = st.columns([2.2] + [1] * len(PAGES))
+with logo_col:
+    st.markdown("**🛡️ CyberShield**")
 for i, p in enumerate(PAGES):
     with nav_cols[i]:
-        active = st.session_state.page == p
-        label = f"{PAGE_ICONS[p]} {p}"
-        if st.button(label, key=f"nav_{p}", type="primary" if active else "secondary"):
+        label = f"**{p}**" if st.session_state.page == p else p
+        if st.button(label, key=f"nav_{p}"):
             st.session_state.page = p
             st.rerun()
-st.divider()
+st.markdown("<hr style='margin-top:0'>", unsafe_allow_html=True)
 
 page = st.session_state.page
 
 
-# ---------------------------------------------------------------- pages
+# ============================================================== Home
 if page == "Home":
     st.title("🛡️ CyberShield")
-    st.subheader("Multi-Model Cyberbullying Detection System")
+    st.caption("Multi-model NLP system for detecting and categorising cyberbullying")
+
+    st.markdown("### Project Introduction")
     st.write("""
-CyberShield analyses online comments and flags cyberbullying before it spreads.
-It uses **three different machine-learning models** trained on the public
-**HateXplain** dataset, and reports not just *whether* a comment is abusive but
-*which group it targets*, with a confidence score, an explanation, and a
-suggested next step.
+Cyberbullying — repeated, deliberate harassment carried out through digital
+platforms — has grown alongside social media use, and its effects on mental
+health and safety are well documented. CyberShield was built to help identify
+cyberbullying in text automatically, using Natural Language Processing (NLP),
+so that harmful comments can be flagged before they spread or cause lasting harm.
 """)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Models", len(MODELS))
-    c2.metric("Categories", len(LABELS))
-    c3.metric("Training comments", "20,109+")
 
-    st.markdown("### What it detects")
-    for l in LABELS:
-        st.markdown(f"- **{pretty(l)}**")
+    st.markdown("### Project Objectives")
+    st.markdown("""
+1. Detect whether a given comment contains cyberbullying / hate speech.
+2. Identify **which group is targeted** (race, religion, gender, etc.), not just yes/no.
+3. Implement and fairly **compare three different NLP models** on the same data.
+4. Evaluate model performance using standard classification metrics.
+5. Provide an explanation and a suggested next step for every prediction.
+""")
 
-    st.markdown("### Objectives")
-    st.markdown("""
-1. Detect cyberbullying in short online comments.
-2. Identify the targeted category (race, religion, gender, etc.).
-3. Compare three NLP models on the same data.
-4. Explain each prediction and suggest what to do about it.
+    st.markdown("### NLP Task")
+    st.write("""
+CyberShield frames cyberbullying detection as a **text classification**
+problem — specifically **multi-label** classification, since one comment can
+belong to more than one category at once (e.g. abusive *and* targeting race).
+**Input:** a raw comment (free text). **Output:** six independent yes/no
+predictions, one per category, each with a confidence score.
 """)
-    st.markdown("### How to use")
-    st.markdown("""
-- **Text Detection** — type or paste one or many comments.
-- **Social Media Detection** — analyse a YouTube or Reddit link.
-- **Batch File Detection** — upload a CSV/TXT of comments.
-- **Model Comparison** — run all three models on the same text.
-- **Dataset Statistics / Model Evaluation** — the data and the numbers.
-""")
-    st.info("Use the navigation bar above to switch pages. Each page has its "
-            "own **ℹ️ How to use this page** guide if you need it.")
+
+    st.markdown("### Implemented NLP Models")
+    for name, info in MODEL_INFO.items():
+        st.markdown(f"**{name}** — {info['algorithm_type']}. "
+                    f"Feature extraction: {info['feature_method']}. {info['note']}")
+
+    st.markdown("### Dataset Summary")
+    try:
+        df, text_col, labels = get_dataset()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total records", f"{len(df):,}")
+        c2.metric("Classes / categories", len(labels))
+        c3.metric("Source", "HateXplain (Kaggle)")
+        st.caption("See the **Dataset Statistics** page for the full breakdown.")
+    except Exception as e:
+        st.warning(f"Dataset summary unavailable: {e}")
+
+    st.markdown("### Explore")
+    nc = st.columns(4)
+    targets = ["Dataset Statistics", "Data Preprocessing", "Cyberbully Detection", "Model Evaluation"]
+    descs = ["See the data behind the models", "See how raw text becomes model input",
+            "Try the detector yourself", "Compare model performance"]
+    for i, (t, d) in enumerate(zip(targets, descs)):
+        with nc[i]:
+            st.markdown(f"**{t}**")
+            st.caption(d)
+            if st.button("Go →", key=f"home_go_{t}"):
+                st.session_state.page = t
+                st.rerun()
+
     st.caption("Educational project. Predictions are statistical and can be "
                "wrong — always apply human judgement before acting on a result.")
 
 
-elif page == "Text Detection":
-    st.title("Text Detection")
-    page_guide(page)
-    page_controls(show_model=True, show_threshold=True, key_prefix="text")
+# ============================================================== Dataset Statistics
+elif page == "Dataset Statistics":
+    st.title("Dataset Statistics")
+
+    try:
+        from src.data_loader import find_csv
+        source_file = os.path.basename(find_csv(DATA_DIR))
+    except Exception:
+        source_file = "final_hateXplain.csv"
+
+    try:
+        df, text_col, labels = get_dataset()
+    except Exception as e:
+        st.error(f"Could not load the dataset: {e}")
+        st.stop()
+
+    st.markdown("### Dataset Overview")
+    lengths = df[text_col].astype(str).str.split().apply(len)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Source file", source_file)
+    c2.metric("Records", f"{len(df):,}")
+    c3.metric("Classes", len(labels))
+    c4.metric("Avg. length", f"{lengths.mean():.1f} words")
+    st.caption("Source: HateXplain — a peer-reviewed, publicly available "
+              "hate-speech dataset (via Kaggle).")
+
+    st.markdown("### Dataset Preview")
+    st.caption("First few rows, comment text with its labels.")
+    st.dataframe(df.head(10), width="stretch")
+
+    st.markdown("### Dataset Information")
+    info_df = pd.DataFrame({
+        "Column": df.columns,
+        "Data type": [str(df[c].dtype) for c in df.columns],
+        "Non-null count": [df[c].notna().sum() for c in df.columns],
+    })
+    st.dataframe(info_df, width="stretch")
+    st.caption(f"Memory usage: {df.memory_usage(deep=True).sum() / 1e6:.2f} MB")
+
+    st.markdown("### Class Distribution (Abusive vs Clean)")
+    c1, c2 = st.columns(2)
+    with c1:
+        counts = df["abusive"].value_counts().rename({0: "Clean", 1: "Abusive"})
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.pie(counts.values, labels=counts.index, autopct="%1.1f%%",
+               colors=["#27ae60", "#c0392b"])
+        st.pyplot(fig); plt.close(fig)
+    with c2:
+        fig, ax = plt.subplots(figsize=(4.5, 4))
+        counts.plot(kind="bar", ax=ax, color=["#27ae60", "#c0392b"])
+        ax.set_ylabel("Count")
+        st.pyplot(fig); plt.close(fig)
+
+    st.markdown("### Offensive Category Distribution")
+    st.caption("Categories are the ones our dataset (HateXplain) actually "
+              "provides — not a generic example list.")
+    cat_counts = df[labels].sum().sort_values(ascending=False)
+    cat_counts.index = [pretty(i) for i in cat_counts.index]
+    st.bar_chart(cat_counts)
+
+    st.markdown("### Sentence Length Distribution")
+    fig, ax = plt.subplots(figsize=(8, 3.5))
+    ax.hist(lengths, bins=50, color="#2980b9")
+    ax.set_xlim(0, lengths.quantile(0.99))
+    ax.set_xlabel("Words per comment")
+    st.pyplot(fig); plt.close(fig)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Min", int(lengths.min()))
+    c2.metric("Median", int(lengths.median()))
+    c3.metric("Mean", f"{lengths.mean():.1f}")
+    c4.metric("Max", int(lengths.max()))
+
+    st.markdown("### Word Cloud")
+    sample_for_cloud = df[text_col].sample(min(4000, len(df)), random_state=42).apply(clean_text)
+    render_wordcloud(sample_for_cloud)
+
+    st.markdown("### Most Frequent Words")
+    from collections import Counter
+    words = Counter(" ".join(sample_for_cloud).split())
+    top = pd.Series(dict(words.most_common(25)))
+    st.bar_chart(top)
+
+    st.markdown("### Label Distribution Summary")
+    dist = pd.DataFrame({
+        "Category": [pretty(l) for l in labels],
+        "Count": [int(df[l].sum()) for l in labels],
+        "Percentage": [f"{df[l].mean():.1%}" for l in labels],
+    })
+    st.dataframe(dist, width="stretch")
+
+    st.markdown("### NLP Workflow Overview")
+    st.caption("From raw comment to final prediction:")
+    render_workflow_diagram()
+
+
+# ============================================================== Data Preprocessing
+elif page == "Data Preprocessing":
+    st.title("Data Preprocessing")
+    st.caption("How raw comments are cleaned and prepared before the models see them.")
+
+    try:
+        df, text_col, labels = get_dataset()
+    except Exception as e:
+        st.error(f"Could not load the dataset: {e}")
+        st.stop()
+
+    st.markdown("### Dataset Quality Assessment")
+    issues = detect_quality_issues(df, text_col)
+    cols = st.columns(len(issues))
+    for i, (k, v) in enumerate(issues.items()):
+        cols[i].metric(k, f"{v:,}")
+    st.caption("These are checked (and where present, handled) before the "
+              "data reaches the models.")
+
+    st.markdown("### Missing Value Handling")
+    before_n = len(df) + issues["Missing (null) comments"]
+    st.write(f"Rows before dropping missing comments: **{before_n:,}** → "
+            f"after: **{len(df):,}** "
+            f"({issues['Missing (null) comments']} removed).")
+    st.caption("Handled in `src/data_loader.py` — rows with no comment text "
+              "are dropped before anything else runs.")
+
+    st.markdown("### Duplicate Detection & Removal")
+    dupes = df[df.duplicated(subset=[text_col], keep=False)].head(5)
+    if len(dupes):
+        st.write("Example duplicate comments found in the raw data:")
+        st.dataframe(dupes[[text_col]], width="stretch")
+    else:
+        st.write("No duplicate comments found in a quick scan of this dataset.")
+    st.caption("Duplicates are removed during merging (`crawler/merge_datasets.py`) "
+              "and before model training.")
+
+    st.markdown("### Text Cleaning, Tokenization & Lemmatization — Live Demo")
+    st.write("Pick a sample comment, or type your own, to see every "
+            "preprocessing step applied to it in order.")
+    demo_source = st.radio("Comment source", ["Pick from dataset", "Type my own"],
+                           horizontal=True,
+                           help="See the pipeline applied to a real dataset "
+                                "example, or test your own sentence.")
+    if demo_source == "Pick from dataset":
+        sample_row = df.sample(1, random_state=None).iloc[0]
+        demo_text = sample_row[text_col]
+        if st.button("🔀 Shuffle — pick another random comment"):
+            st.rerun()
+    else:
+        demo_text = st.text_input("Type a comment to preprocess",
+                                  "You are SO stupid!!! @someone check http://x.com #loser",
+                                  help="See exactly how this pipeline cleans your text.")
+
+    steps = clean_text_steps(demo_text)
+    for step_name, step_value in steps.items():
+        st.markdown(f"**{step_name}**")
+        st.code(step_value if step_value else "(empty)", language=None)
+
+    st.markdown("### Feature Extraction (TF-IDF)")
+    st.write("The cleaned text above is converted into numbers using TF-IDF "
+            "(Term Frequency – Inverse Document Frequency), which weighs "
+            "words by how distinctive they are, not just how often they appear.")
+    try:
+        bundle = get_model(MODELS[st.session_state.get("sel_model", list(MODELS.keys())[0])])
+        vectorizer = bundle["pipeline"].named_steps["tfidf"]
+        cleaned_final = steps["7. Final cleaned text (fed to the model)"]
+        if cleaned_final.strip():
+            vec = vectorizer.transform([cleaned_final])
+            feat_names = vectorizer.get_feature_names_out()
+            nz = vec.nonzero()[1]
+            if len(nz):
+                tfidf_df = pd.DataFrame({
+                    "Term": [feat_names[i] for i in nz],
+                    "TF-IDF weight": [round(vec[0, i], 4) for i in nz],
+                }).sort_values("TF-IDF weight", ascending=False)
+                st.dataframe(tfidf_df, width="stretch")
+            else:
+                st.caption("None of these words are in the model's TF-IDF vocabulary.")
+        else:
+            st.caption("Nothing left to vectorize after cleaning.")
+    except Exception as e:
+        st.caption(f"TF-IDF preview unavailable: {e}")
+
+    st.markdown("### Outlier Handling")
+    repeated_count = issues["Repeated-character spam (e.g. 'aaaaaa')"]
+    st.write(f"- **{issues['Extremely short (<=2 words)']:,}** comments have "
+            "2 words or fewer after basic cleaning (low signal for classification).")
+    st.write(f"- **{repeated_count:,}** comments contain repeated-character spam patterns.")
+    st.caption("Flagged for awareness; not automatically removed from "
+              "training, since even short comments can be genuinely abusive "
+              "(e.g. \"kill yourself\").")
+
+    st.markdown("### Before & After Comparison")
+    demo_df = df.sample(min(5, len(df)), random_state=1)[[text_col]].copy()
+    demo_df["Cleaned"] = demo_df[text_col].apply(clean_text)
+    demo_df.columns = ["Original", "Cleaned"]
+    st.dataframe(demo_df, width="stretch")
+
+    st.markdown("### Processed Dataset Preview")
+    preview = df.head(10).copy()
+    preview["cleaned_" + text_col] = preview[text_col].apply(clean_text)
+    st.dataframe(preview, width="stretch")
+
+
+# ============================================================== Cyberbully Detection
+elif page == "Cyberbully Detection":
+    st.title("Cyberbully Detection")
+    page_controls(show_model=True, show_threshold=True, key_prefix="detect")
     bundle = get_model(MODELS[st.session_state.sel_model])
     threshold = st.session_state.sel_threshold
     model_name = st.session_state.sel_model
 
-    st.write("Enter one comment, or paste several (one per line).")
+    tab1, tab2, tab3 = st.tabs(["✍️ Enter Comment", "📁 Import CSV", "🌐 Social Media URL"])
 
-    if "text_input" not in st.session_state:
-        st.session_state.text_input = ""
+    # ---- Tab 1: Enter Comment ----
+    with tab1:
+        if "text_input" not in st.session_state:
+            st.session_state.text_input = ""
+        c1, c2 = st.columns([1, 1])
+        if c1.button("Load example"):
+            st.session_state.text_input = (
+                "you are a stupid idiot nobody likes you\n"
+                "Thanks for sharing, this was really useful!\n"
+                "go back to your own country you don't belong here")
+        if c2.button("Clear"):
+            st.session_state.text_input = ""
 
-    c1, c2 = st.columns([1, 1])
-    if c1.button("Load example"):
-        st.session_state.text_input = (
-            "you are a stupid idiot nobody likes you\n"
-            "Thanks for sharing, this was really useful!\n"
-            "go back to your own country you don't belong here")
-    if c2.button("Clear"):
-        st.session_state.text_input = ""
+        text = st.text_area(
+            "Comment(s)", key="text_input", height=140,
+            placeholder="Type a comment here...",
+            help="One comment, or paste several — put each on its own line "
+                 "to analyse them all at once.")
 
-    text = st.text_area("Comment(s)", key="text_input", height=160,
-                        placeholder="Type a comment here...")
+        if st.button("Analyze", type="primary", key="analyze_text"):
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            if not lines:
+                st.warning("Please enter at least one comment.")
+            elif len(lines) == 1:
+                t0 = time.time()
+                res = predict(bundle, lines[0], threshold=threshold)
+                result_card(res, threshold, model_name, time.time() - t0, lines[0])
+            else:
+                st.write(f"Analyzing **{len(lines)}** comments with **{model_name}**...")
+                df_res = analyze_many(bundle, lines, threshold)
+                n_bad = (df_res["Cyberbullying"] == "YES").sum()
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total", len(df_res))
+                c2.metric("Flagged", int(n_bad))
+                c3.metric("Clean", int(len(df_res) - n_bad))
+                st.dataframe(df_res[["Comment", "Cyberbullying", "Categories",
+                                     "Confidence"]], width="stretch")
+                summary_charts(df_res)
+                st.markdown("#### 🧭 Suggested next step")
+                st.markdown(batch_suggestion(df_res))
+                st.download_button("Download results (CSV)",
+                                   df_res.to_csv(index=False).encode(),
+                                   "cybershield_results.csv", "text/csv")
 
-    if st.button("Analyze", type="primary"):
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        if not lines:
-            st.warning("Please enter at least one comment.")
-        elif len(lines) == 1:
-            t0 = time.time()
-            res = predict(bundle, lines[0], threshold=threshold)
-            result_card(res, threshold, model_name, time.time() - t0, lines[0])
-        else:
-            st.write(f"Analyzing **{len(lines)}** comments with **{model_name}**...")
-            df = analyze_many(bundle, lines, threshold)
-            n_bad = (df["Cyberbullying"] == "YES").sum()
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total", len(df))
-            c2.metric("Flagged", int(n_bad))
-            c3.metric("Clean", int(len(df) - n_bad))
-            st.dataframe(df[["Comment", "Cyberbullying", "Categories",
-                             "Confidence"]], width="stretch")
-            summary_charts(df)
-            st.markdown("#### 🧭 Suggested next step")
-            st.markdown(batch_suggestion(df))
-            st.download_button("Download results (CSV)",
-                               df.to_csv(index=False).encode(),
-                               "cybershield_results.csv", "text/csv")
+    # ---- Tab 2: Import CSV ----
+    with tab2:
+        up = st.file_uploader(
+            "Choose a file", type=["csv", "txt"],
+            help="CSV needs a text column (you'll pick which one). TXT: one "
+                 "comment per line.")
+        if up is not None:
+            try:
+                if up.name.lower().endswith(".csv"):
+                    raw = pd.read_csv(up)
+                    st.write("Preview:")
+                    st.dataframe(raw.head(), width="stretch")
+                    col = st.selectbox("Which column holds the comment text?",
+                                       list(raw.columns),
+                                       help="Pick the column containing the "
+                                            "actual comment/message text.")
+                    texts = raw[col].dropna().astype(str).tolist()
+                else:
+                    texts = [l.strip() for l in
+                             up.read().decode("utf-8", errors="ignore").split("\n")
+                             if l.strip()]
+                st.success(f"Loaded {len(texts)} comments.")
 
+                if st.button("Analyze file", type="primary"):
+                    with st.spinner("Analyzing..."):
+                        df_res = analyze_many(bundle, texts, threshold)
+                    n_bad = (df_res["Cyberbullying"] == "YES").sum()
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Total", len(df_res))
+                    c2.metric("Flagged", int(n_bad))
+                    c3.metric("Flag rate", f"{n_bad/max(len(df_res),1):.0%}")
+                    st.dataframe(df_res, width="stretch")
+                    summary_charts(df_res)
+                    st.markdown("#### 🧭 Suggested next step")
+                    st.markdown(batch_suggestion(df_res))
+                    st.download_button("Download full results (CSV)",
+                                       df_res.to_csv(index=False).encode(),
+                                       "batch_results.csv", "text/csv")
+            except Exception as e:
+                st.error(f"Could not read that file: {e}")
 
-elif page == "Social Media Detection":
-    st.title("Social Media Detection")
-    page_guide(page)
-    page_controls(show_model=True, show_threshold=True, key_prefix="social")
-    bundle = get_model(MODELS[st.session_state.sel_model])
-    threshold = st.session_state.sel_threshold
-
-    st.info("""
-**Supported:** YouTube and Reddit, through their **official public APIs**.
-
-**Not supported:** Facebook, Instagram, X/Twitter and TikTok. Their Terms of
-Service prohibit automated comment collection and they block it technically, so
-this system does not attempt to scrape them. For those platforms, copy the
-comments manually into the **Text Detection** page.
-""")
-
-    st.markdown("#### 🔑 About the YouTube API key")
-    st.markdown(
-        "**Is it free? Yes.** YouTube's official API has a generous free "
-        "tier — no credit card, no charge, just a Google account and a few "
-        "clicks. Reddit links need **no key at all**. Don't want to set "
-        "anything up right now? Use **Demo comments** below instead — no "
-        "key needed."
-    )
-    with st.expander("Get a free YouTube API key (one-time, ~2 minutes)"):
-        st.markdown("""
+    # ---- Tab 3: Social Media URL ----
+    with tab3:
+        st.info("**Supported:** YouTube and Reddit, via official public APIs. "
+               "**Not supported:** Facebook, Instagram, X/Twitter, TikTok — "
+               "their Terms of Service prohibit automated collection.")
+        st.caption("YouTube's API is genuinely free (no credit card) — see "
+                  "the box below for a 2-minute setup, or skip it with Demo mode.")
+        with st.expander("Get a free YouTube API key (~2 minutes)"):
+            st.markdown("""
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create or select a project (any name is fine)
 3. Search **"YouTube Data API v3"** in the API Library → click **Enable**
 4. Go to **Credentials → Create Credentials → API key** → copy it
 5. Paste it in the box below
 """)
-    api_key = st.text_input(
-        "YouTube API key (only needed for YouTube links — leave blank for "
-        "Reddit or Demo mode)", type="password")
+        api_key = st.text_input(
+            "YouTube API key", type="password",
+            help="Only needed for YouTube links. Leave blank for Reddit or Demo mode.")
 
-    url = st.text_input("Social media URL",
-                        placeholder="https://www.youtube.com/watch?v=...  or  https://www.reddit.com/r/.../comments/...")
-    n_max = st.slider("Max comments to fetch", 10, 100, 40, 10)
+        url = st.text_input(
+            "Social media URL",
+            placeholder="https://www.youtube.com/watch?v=...  or  https://www.reddit.com/r/.../comments/...",
+            help="Paste a YouTube video link or a Reddit thread link.")
+        n_max = st.slider("Max comments to fetch", 10, 100, 40, 10,
+                          help="More comments = more thorough, but slower to fetch.")
 
-    c1, c2 = st.columns([1, 1])
-    fetch_clicked = c1.button("Fetch comments", type="primary")
-    demo_clicked = c2.button("Use demo comments (no API needed)")
+        c1, c2 = st.columns([1, 1])
+        fetch_clicked = c1.button("Fetch comments", type="primary")
+        demo_clicked = c2.button("Use demo comments (no API needed)")
 
-    if demo_clicked:
-        st.session_state.fetched = social.demo_comments()
-        st.session_state.is_demo = True
-    if fetch_clicked:
-        if not url.strip():
-            st.warning("Please paste a URL first.")
-        else:
-            with st.spinner("Fetching..."):
-                comments, err, platform = social.fetch_comments(url, api_key, n_max)
-            if err:
-                st.error(err)
+        if demo_clicked:
+            st.session_state.fetched = social.demo_comments()
+            st.session_state.is_demo = True
+        if fetch_clicked:
+            if not url.strip():
+                st.warning("Please paste a URL first.")
             else:
-                st.session_state.fetched = comments
-                st.session_state.is_demo = False
-                st.success(f"Fetched {len(comments)} comments from {platform}.")
+                with st.spinner("Fetching..."):
+                    comments, err, platform = social.fetch_comments(url, api_key, n_max)
+                if err:
+                    st.error(err)
+                else:
+                    st.session_state.fetched = comments
+                    st.session_state.is_demo = False
+                    st.success(f"Fetched {len(comments)} comments from {platform}.")
 
-    comments = st.session_state.get("fetched", [])
-    if comments:
-        if st.session_state.get("is_demo"):
-            st.warning("Showing **demo sample comments** — not real fetched data.")
-        st.metric("Comments retrieved", len(comments))
-        with st.expander("Preview retrieved comments"):
-            for c in comments[:15]:
-                st.write("-", c)
+        comments = st.session_state.get("fetched", [])
+        if comments:
+            if st.session_state.get("is_demo"):
+                st.warning("Showing **demo sample comments** — not real fetched data.")
+            st.metric("Comments retrieved", len(comments))
+            with st.expander("Preview retrieved comments"):
+                for c in comments[:15]:
+                    st.write("-", c)
 
-        if st.button("Analyze comments", type="primary"):
-            df = analyze_many(bundle, comments, threshold)
-            n_bad = (df["Cyberbullying"] == "YES").sum()
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Analyzed", len(df))
-            c2.metric("Flagged", int(n_bad))
-            c3.metric("Flag rate", f"{n_bad/len(df):.0%}")
-            st.dataframe(df[["Comment", "Cyberbullying", "Categories",
-                             "Confidence"]], width="stretch")
-            summary_charts(df)
-            st.markdown("#### 🧭 Suggested next step")
-            st.markdown(batch_suggestion(df))
-            st.download_button("Download results (CSV)",
-                               df.to_csv(index=False).encode(),
-                               "social_results.csv", "text/csv")
-
-
-elif page == "Batch File Detection":
-    st.title("Batch File Detection")
-    page_guide(page)
-    page_controls(show_model=True, show_threshold=True, key_prefix="batch")
-    bundle = get_model(MODELS[st.session_state.sel_model])
-    threshold = st.session_state.sel_threshold
-
-    st.write("Upload a **CSV** (with a text column) or a **TXT** file (one comment per line).")
-
-    up = st.file_uploader("Choose a file", type=["csv", "txt"])
-    if up is not None:
-        try:
-            if up.name.lower().endswith(".csv"):
-                raw = pd.read_csv(up)
-                st.write("Preview:")
-                st.dataframe(raw.head(), width="stretch")
-                col = st.selectbox("Which column holds the comment text?",
-                                   list(raw.columns))
-                texts = raw[col].dropna().astype(str).tolist()
-            else:
-                texts = [l.strip() for l in
-                         up.read().decode("utf-8", errors="ignore").split("\n")
-                         if l.strip()]
-            st.success(f"Loaded {len(texts)} comments.")
-
-            if st.button("Analyze file", type="primary"):
-                with st.spinner("Analyzing..."):
-                    df = analyze_many(bundle, texts, threshold)
-                n_bad = (df["Cyberbullying"] == "YES").sum()
+            if st.button("Analyze comments", type="primary", key="analyze_social"):
+                df_res = analyze_many(bundle, comments, threshold)
+                n_bad = (df_res["Cyberbullying"] == "YES").sum()
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Total", len(df))
+                c1.metric("Analyzed", len(df_res))
                 c2.metric("Flagged", int(n_bad))
-                c3.metric("Flag rate", f"{n_bad/max(len(df),1):.0%}")
-                st.dataframe(df, width="stretch")
-                summary_charts(df)
+                c3.metric("Flag rate", f"{n_bad/len(df_res):.0%}")
+                st.dataframe(df_res[["Comment", "Cyberbullying", "Categories",
+                                     "Confidence"]], width="stretch")
+                summary_charts(df_res)
                 st.markdown("#### 🧭 Suggested next step")
-                st.markdown(batch_suggestion(df))
-                st.download_button("Download full results (CSV)",
-                                   df.to_csv(index=False).encode(),
-                                   "batch_results.csv", "text/csv")
-        except Exception as e:
-            st.error(f"Could not read that file: {e}")
+                st.markdown(batch_suggestion(df_res))
+                st.download_button("Download results (CSV)",
+                                   df_res.to_csv(index=False).encode(),
+                                   "social_results.csv", "text/csv")
 
 
-elif page == "Model Comparison":
-    st.title("Model Comparison")
-    page_guide(page)
-    page_controls(show_model=False, show_threshold=True, key_prefix="compare")
-    threshold = st.session_state.sel_threshold
+# ============================================================== Model Evaluation
+elif page == "Model Evaluation":
+    st.title("Model Evaluation")
 
-    st.write("Run **all three models** on the same comment and compare them.")
+    st.markdown("### Model Overview")
+    overview = pd.DataFrame([
+        {"Model": name, "Feature Extraction": info["feature_method"],
+         "Algorithm Type": info["algorithm_type"]}
+        for name, info in MODEL_INFO.items() if name in MODELS
+    ])
+    st.dataframe(overview, width="stretch")
 
-    text = st.text_input("Comment to compare",
-                         "you are a stupid idiot nobody likes you")
+    st.markdown("### Same-Comment Prediction (all models)")
+    text = st.text_input("Comment to compare", "you are a stupid idiot nobody likes you",
+                         help="Runs this exact comment through all three "
+                              "models so you can compare their predictions.")
     if st.button("Compare models", type="primary") and text.strip():
         rows = []
         for name, path in MODELS.items():
             b = get_model(path)
             t0 = time.time()
-            r = predict(b, text, threshold=threshold)
+            r = predict(b, text, threshold=st.session_state.sel_threshold)
             rows.append({
                 "Model": name,
                 "Prediction": "CYBERBULLYING" if r["is_bully"] else "Clean",
@@ -557,89 +787,35 @@ elif page == "Model Comparison":
         cmp = pd.DataFrame(rows)
         st.dataframe(cmp[["Model", "Prediction", "Categories",
                           "Top confidence", "Time (ms)"]], width="stretch")
-
-        st.write("**Confidence per category, by model:**")
-        chart_df = cmp.set_index("Model")[[pretty(l) for l in LABELS]]
-        st.bar_chart(chart_df.T)
-
+        st.bar_chart(cmp.set_index("Model")[[pretty(l) for l in LABELS]].T)
         if cmp["Prediction"].nunique() > 1:
-            st.warning("The models disagree on this comment — a good example for "
-                       "your report of how algorithm choice changes the outcome.")
+            st.warning("The models disagree on this comment.")
         else:
             st.success("All three models agree on this comment.")
 
-
-elif page == "Dataset Statistics":
-    st.title("Dataset Statistics")
-    page_guide(page)
-    try:
-        from src.data_loader import find_csv
-        source_file = os.path.basename(find_csv(DATA_DIR))
-    except Exception:
-        source_file = "final_hateXplain.csv"
-    st.write(f"Training data source: **`{source_file}`**")
-
-    try:
-        df, text_col, labels = get_dataset()
-    except Exception as e:
-        st.error(f"Could not load the dataset: {e}")
-        st.stop()
-
-    lengths = df[text_col].astype(str).str.split().apply(len)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Comments", f"{len(df):,}")
-    c2.metric("Categories", len(labels))
-    c3.metric("Avg length", f"{lengths.mean():.1f} words")
-    c4.metric("Multi-label", f"{(df[labels].sum(axis=1) >= 2).sum():,}")
-
-    st.subheader("Comments per category")
-    counts = df[labels].sum().sort_values(ascending=False)
-    counts.index = [pretty(i) for i in counts.index]
-    st.bar_chart(counts)
-
-    st.subheader("Comment length distribution")
-    fig, ax = plt.subplots(figsize=(8, 3.5))
-    ax.hist(lengths, bins=50, color="#2980b9")
-    ax.set_xlim(0, lengths.quantile(0.99))
-    ax.set_xlabel("Words per comment")
-    st.pyplot(fig); plt.close(fig)
-
-    st.subheader("Most frequent words (after cleaning)")
-    from collections import Counter
-    sample = df[text_col].sample(min(4000, len(df)), random_state=42)
-    words = Counter(" ".join(clean_text(t) for t in sample).split())
-    top = pd.Series(dict(words.most_common(25)))
-    st.bar_chart(top)
-
-    st.subheader("Sample rows")
-    st.dataframe(df.head(20), width="stretch")
-
-
-elif page == "Model Evaluation":
-    st.title("Model Performance Evaluation")
-    page_guide(page)
-    page_controls(show_model=True, show_threshold=False, key_prefix="eval")
-    bundle = get_model(MODELS[st.session_state.sel_model])
-
-    st.write("Metrics computed on the held-out 20% test set at the standard "
-             "0.50 threshold.")
+    st.markdown("### Evaluation Metrics")
+    st.caption("**Accuracy** below is per-label accuracy averaged across all "
+              "6 categories (each treated as its own yes/no question) — this "
+              "is the number comparable to what most papers report. Subset "
+              "Accuracy is the much stricter \"all 6 correct at once\" measure.")
 
     if not os.path.exists(SCORES_CSV):
         st.warning("No scores yet — train the models first.")
         st.stop()
 
     scores = pd.read_csv(SCORES_CSV)
-    st.dataframe(scores, width="stretch")
+    display_cols = ["model", "accuracy", "subset_accuracy",
+                    "precision_macro", "recall_macro", "f1_macro",
+                    "f1_weighted", "train_time_sec", "predict_time_sec"]
+    display_cols = [c for c in display_cols if c in scores.columns]
+    st.dataframe(scores[display_cols], width="stretch")
 
-    st.subheader("F1 comparison")
-    chart = scores.set_index("model")[["f1_micro", "f1_macro"]]
-    st.bar_chart(chart)
-
-    st.subheader("Confusion matrix (per category)")
+    st.markdown("### Confusion Matrix")
     st.caption("Computed live on the test set for the model selected above.")
-    if st.button("Compute confusion matrices"):
-        from sklearn.metrics import confusion_matrix
+    if st.button("Compute confusion matrices & classification report"):
+        from sklearn.metrics import confusion_matrix, classification_report
         from src.common import prepare_data
+        bundle = get_model(MODELS[st.session_state.sel_model])
         with st.spinner("Running the model over the test set..."):
             X_train, X_test, y_train, y_test, labels = prepare_data(DATA_DIR, verbose=False)
             P = _label_probs(bundle["pipeline"], list(X_test))
@@ -657,11 +833,43 @@ elif page == "Model Evaluation":
             ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
             cols[i % 3].pyplot(fig); plt.close(fig)
 
-    st.subheader("Notes for the report")
-    st.markdown("""
-- **Micro-F1** aggregates over all label decisions, so frequent labels dominate.
-- **Macro-F1** averages each category equally, so rare categories matter more —
-  it drops when a model handles minority categories poorly.
-- **Subset accuracy** requires *every* one of the six labels to be right at once,
-  which is why it looks low; that is normal for multi-label problems.
+        st.markdown("### Classification Report")
+        report = classification_report(y_test.values, pred, target_names=labels,
+                                       output_dict=True, zero_division=0)
+        report_df = pd.DataFrame(report).T.round(3)
+        st.dataframe(report_df, width="stretch")
+
+    st.markdown("### Performance Visualization")
+    metric_choice = st.selectbox("Metric to compare", 
+                                 ["accuracy", "f1_macro", "f1_weighted",
+                                  "train_time_sec", "predict_time_sec"],
+                                 help="Pick which metric to chart across all three models.")
+    if metric_choice in scores.columns:
+        st.bar_chart(scores.set_index("model")[metric_choice])
+
+    st.markdown("### Overall Evaluation Summary")
+    best_acc = scores.loc[scores["accuracy"].idxmax(), "model"]
+    best_f1 = scores.loc[scores["f1_macro"].idxmax(), "model"]
+    fastest_train = scores.loc[scores["train_time_sec"].idxmin(), "model"] if "train_time_sec" in scores else None
+    fastest_predict = scores.loc[scores["predict_time_sec"].idxmin(), "model"] if "predict_time_sec" in scores else None
+
+    st.markdown(f"""
+- **Highest accuracy:** {best_acc}
+- **Best macro-F1 (balanced across categories):** {best_f1}
+- **Fastest to train:** {fastest_train}
+- **Fastest to predict:** {fastest_predict}
+
+**Strengths & weaknesses:**
+- **Logistic Regression** — fast, well-calibrated, strong overall balance; a
+  solid default choice.
+- **Linear SVM** — competitive accuracy, but no native probability estimates
+  (confidence is derived, not directly modeled) and slightly lower recall on
+  rarer categories.
+- **Random Forest** — often the highest raw accuracy and precision, at the
+  cost of noticeably slower training and prediction, and a smaller
+  vocabulary (to keep the saved model a reasonable size).
+
+No single model wins on every metric — which is itself a valid finding: on
+TF-IDF features, the choice of classifier matters less than the quality of
+the features and the amount of labeled data available.
 """)
