@@ -244,7 +244,11 @@ def detect_quality_issues(df, text_col):
     texts = df[text_col].astype(str)
     empty = texts.str.strip().eq("").sum()
     too_short = (texts.str.split().apply(len) <= 2).sum()
-    repeated = texts.str.contains(r"(.)\1{3,}", regex=True, na=False).sum()
+    # Uses Python's own re engine (via .apply) rather than pandas' vectorized
+    # .str.contains(regex=True) - some pandas/PyArrow string backends use the
+    # RE2 engine for that, which doesn't support backreferences like \1.
+    _repeated_re = re.compile(r"(.)\1{3,}")
+    repeated = texts.apply(lambda t: bool(_repeated_re.search(t))).sum()
     duplicates = df.duplicated(subset=[text_col]).sum()
     missing = df[text_col].isna().sum()
     return {
