@@ -9,246 +9,193 @@ instead — this document assumes the app is already running
 
 ## Getting around: the navigation bar
 
-At the top of the app is a row of buttons — click any of them to switch pages
-(the current page is highlighted). This replaces the old sidebar menu, so
-everything is one click away and easy to tap even on a smaller screen.
+At the top of the app is a row of plain text links (like a normal website
+navbar) — click any page name to switch. The current page is shown in bold.
+
+## Inline guidance
+
+Look for the small **(?)** icon next to input boxes, dropdowns, and sliders —
+hover or tap it for a short explanation of what that specific input does.
+This replaces long instruction boxes with guidance right where you need it.
 
 ## The Model and Detection Sensitivity controls
 
-On pages where they're relevant, you'll see these two controls appear **right
-on that page** (not hidden in a sidebar), right under the page title:
+On the **Cyberbully Detection** page, you'll see two controls near the top:
 
 | Control | What it does |
 |---------|---------------|
 | **Model** | Choose which of the three trained models (Logistic Regression, Linear SVM, Random Forest) is used for detection. |
 | **Detection sensitivity (threshold)** | How confident the model must be before it flags something as cyberbullying. **Lower** = flags more comments (catches more, but more false alarms). **Higher** = stricter (fewer false alarms, may miss some). Default is 0.60. |
 
-They only show up where they're actually used:
-- **Text Detection, Social Media Detection, Batch File Detection** — both controls
-- **Model Comparison** — only the sensitivity slider (it runs all three models at once, so there's no single model to pick)
-- **Model Evaluation** — only the model picker (used for the confusion matrix; the official metrics table always uses the standard 0.50)
-- **Home, Dataset Statistics** — neither (nothing to configure — just browse)
-
-You don't need to touch these to use the app — the defaults work well — but
-they're there if you want to explore how model choice or strictness changes
-the outcome.
-
-Every page also has an **ℹ️ How to use this page** box near the top — click
-it open any time you need a quick reminder of what that page does.
+These apply across all three tabs on that page (Enter Comment, Import CSV,
+Social Media URL). You don't need to touch them to use the app — the
+defaults work well.
 
 ---
 
 ## 1. Home Page
 
-**What it's for:**
-The landing page. It introduces the project, explains what the system detects,
-and gives a quick orientation before you start using it.
+**What it's for:** the landing page — introduces the project, its objectives,
+the NLP task being solved, the three implemented models, and a quick summary
+of the dataset.
 
 **What's on it:**
-- Project title and short description
-- Quick stats: how many models, how many categories, how many training comments
-- The list of categories the system can detect (e.g. Racial Hate, Religious Hate)
-- The project's objectives
-- A short "how to use" summary of the other pages
+- Project introduction (what cyberbullying detection is and why it matters)
+- Project objectives
+- NLP task explanation (multi-label text classification: input a comment, get
+  six yes/no predictions back)
+- The three implemented models, with their feature extraction method
+- Dataset summary (size, number of categories, source)
+- Quick-jump buttons to the other four pages
 
-**How to use it:**
-There's nothing to click here — just read it, then use the **sidebar** on the
-left to jump to whichever page you need (usually **Text Detection** first).
-
----
-
-## 2. Text Detection
-
-**What it's for:**
-The core feature. Type or paste any comment(s) and find out instantly whether
-they contain cyberbullying, which category they target, and why.
-
-**Who it's for:** anyone testing a single sentence quickly — parents checking a
-message, moderators screening a comment, or you demonstrating the system.
-
-**How to use it:**
-1. Type or paste your comment into the text box.
-   - **One comment** → type a single sentence.
-   - **Multiple comments** → paste several, **one per line** (press Enter between each).
-2. (Optional) Click **"Load example"** to auto-fill a sample set of comments —
-   useful for a quick demo without typing anything.
-3. Click **"Analyze"**.
-4. Read the result:
-   - **Single comment** → you'll see a full result card: a clear verdict
-     (⚠️ Cyberbullying Detected / ✅ No cyberbullying), which category(ies) it
-     matched, a confidence percentage for each category (shown as progress
-     bars), the specific words that drove the decision **highlighted in red**
-     in your original text, a plain-English explanation of the reasoning, and
-     a **🧭 Suggested next step** — practical guidance on what to actually do
-     about it (e.g. save evidence, report to the platform, when to escalate).
-   - **Multiple comments** → you'll see a summary table (flagged vs clean,
-     category, confidence for each line), a pie chart and bar chart summarising
-     the batch, and a **download button** to save the results as a CSV file.
-5. Click **"Clear"** to empty the box and start over.
-
-**Tip:** if a comment gets flagged and you're not sure why, check the
-highlighted words and the explanation text underneath the result — that's
-exactly what they're there for.
+**How to use it:** just read it, then click a page name in the nav bar (or
+one of the "Go →" buttons at the bottom) to continue.
 
 ---
 
-## 3. Social Media Detection
+## 2. Dataset Statistics
 
-**What it's for:**
-Instead of copying comments manually, this page can pull comments **directly
-from a social media link** and analyze all of them at once.
-
-### What you must know before using it
-
-- ✅ **Supported platforms: YouTube and Reddit.** These are fetched through
-  each platform's **official public API** — a legitimate, sanctioned way to
-  read public comments.
-- ❌ **Not supported: Facebook, Instagram, X/Twitter, TikTok.** These platforms'
-  Terms of Service prohibit automated comment collection, and they actively
-  block it. The app will **not** attempt to scrape them — it will tell you
-  clearly and suggest pasting those comments manually into **Text Detection**
-  instead.
-- 🔑 **YouTube needs a free API key; Reddit does not.** And it really is
-  free — no credit card, no charge, just a Google account and a few clicks
-  (see below). Reddit works with no key at all.
-- 🧪 **No key? Use Demo Mode.** A "Use demo comments" button loads a small set
-  of built-in sample comments so you can try out (and demonstrate) this feature
-  without any setup. The app always clearly labels this as demo data, never as
-  real fetched content.
-
-### Getting a free YouTube API key (optional, only needed for YouTube — ~2 minutes, no cost)
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com/) and sign
-   in with a Google account.
-2. Create a new project (or use an existing one).
-3. Search for **"YouTube Data API v3"** in the API library and click **Enable**.
-4. Go to **Credentials → Create Credentials → API key**. Copy the key.
-5. Paste it into the **"YouTube API key"** box right there on the page (there's
-   also a step-by-step reminder of these exact steps in an expandable box on
-   the page itself).
-
-Reddit doesn't require any key or account — it works out of the box.
-
-### What to input
-
-| Field | What to put in it |
-|-------|--------------------|
-| **Social media URL** | A YouTube video link (e.g. `https://www.youtube.com/watch?v=...`) or a Reddit thread link (e.g. `https://www.reddit.com/r/.../comments/...`) |
-| **Max comments to fetch** | How many comments to pull (10–100). Higher = more thorough, but slower. |
-
-### How to use it
-
-1. (If using YouTube) paste your API key into the sidebar box.
-2. Paste the URL into the **"Social media URL"** field.
-3. Set how many comments to fetch with the slider.
-4. Click **"Fetch comments"** — or click **"Use demo comments"** if you don't
-   have a key handy and just want to try the feature.
-5. Once comments are retrieved, you'll see how many were found and can expand
-   **"Preview retrieved comments"** to skim them first.
-6. Click **"Analyze comments"** to run detection on all of them at once.
-7. Review the summary metrics, the results table, the charts, and download the
-   full results as a CSV if needed.
-
-**Common issue:** if a Reddit fetch fails, it's usually a temporary rate limit
-— wait a few seconds and try again. If a YouTube fetch fails, double-check the
-API key is pasted correctly and that "YouTube Data API v3" is enabled on your
-Google Cloud project.
-
----
-
-## 4. Batch File Detection
-
-**What it's for:**
-Analyze a large number of comments at once from a file, instead of pasting them
-by hand — useful if you already have comments exported to a spreadsheet or text file.
-
-**How to use it:**
-1. Click **"Choose a file"** and upload either:
-   - A **CSV file** — any spreadsheet with a column of text (e.g. exported
-     comments, survey responses).
-   - A **TXT file** — a plain text file with **one comment per line**.
-2. If you uploaded a CSV, a preview of the first few rows appears — use the
-   dropdown to tell the app **which column holds the comment text**.
-3. Click **"Analyze file"**.
-4. Review the summary metrics (total, flagged, flag rate), the full results
-   table (with a confidence score per category for every row), and the summary
-   charts.
-5. Click **"Download full results (CSV)"** to save everything, including every
-   category's confidence score per comment — useful for further analysis in
-   Excel or for your report appendix.
-
----
-
-## 5. Model Comparison
-
-**What it's for:**
-See how the three different models (Logistic Regression, SVM, Random Forest)
-judge the *exact same* comment side by side — useful for demonstrating that
-different algorithms can reach different conclusions, and for your assignment's
-model-comparison requirement.
-
-**How to use it:**
-1. Type a comment into the **"Comment to compare"** box.
-2. Click **"Compare models"**.
-3. Read the comparison table: each model's verdict, matched categories, top
-   confidence score, and how long it took to process.
-4. Check the bar chart underneath to see each model's confidence per category
-   side by side.
-5. A message at the bottom tells you whether all three models **agree** or
-   **disagree** on this comment — disagreements are especially useful to quote
-   in your report as an example of how model choice affects results.
-
----
-
-## 6. Dataset Statistics
-
-**What it's for:**
-Understand the data the models were trained on — useful for your
+**What it's for:** understand the data behind the models — useful for your
 documentation's "Dataset" section, and for building trust in the results by
-seeing where they come from.
+seeing where they come from. No input needed, just browse.
 
-**What's on it (no input needed — just browse):**
-- Total number of training comments, number of categories, average comment
-  length, and how many comments carry more than one label
-- A bar chart of how many comments fall into each category
-- A histogram showing how long comments typically are
-- A bar chart of the most frequently occurring words after cleaning
-- A preview table of sample rows from the raw dataset
-
-**How to use it:** simply open the page and scroll — everything loads
-automatically.
+**What's on it:**
+- Dataset overview (source file, record count, number of classes, average length)
+- A preview of raw rows with their labels
+- Dataset information (column types, non-null counts, memory usage)
+- Class distribution (abusive vs. clean) as pie and bar charts
+- Offensive category distribution — using our actual dataset's categories
+  (Race, Religion, Gender, Sexual Orientation, Miscellaneous), not a generic
+  example list
+- Sentence length histogram and summary statistics (min/median/mean/max)
+- A word cloud of the most common words after cleaning
+- A frequent-words bar chart
+- A label distribution summary table (count and percentage per category)
+- An NLP workflow diagram showing the full pipeline from raw text to prediction
 
 ---
 
-## 7. Model Evaluation
+## 3. Data Preprocessing
 
-**What it's for:**
-The formal performance report: how accurate each model actually is, using the
-metrics required for the assignment (Accuracy, Precision, Recall, F1, Confusion
-Matrix).
+**What it's for:** shows exactly how a raw comment gets turned into something
+the models can use — step by step, with real examples, not just a description.
 
 **How to use it:**
-1. Open the page — a table of all three models' scores (Accuracy, Precision,
-   Recall, F1, Hamming Loss) loads automatically, along with a bar chart
-   comparing their F1 scores.
-2. To see **confusion matrices** (how often each category was correctly vs.
-   incorrectly predicted), click **"Compute confusion matrices"**. This runs
-   the model currently selected in the sidebar over the test set and shows one
-   small matrix per category — it takes a few seconds to compute.
-3. Scroll down to **"Notes for the report"** for a plain-English explanation of
-   what Micro-F1, Macro-F1, and Subset Accuracy mean — handy if you need to
-   explain these terms in your documentation.
+1. **Dataset Quality Assessment** — automatically shows counts of missing
+   values, empty comments, very short comments, repeated-character spam, and
+   duplicates found in the raw data.
+2. **Missing Value / Duplicate Handling** — shows before/after counts and a
+   few real duplicate examples if any exist.
+3. **Live cleaning demo** — pick **"Pick from dataset"** to see a random real
+   comment processed, or **"Type my own"** to test your own sentence. Either
+   way, you'll see every stage applied in order: lowercasing → removing
+   URLs/mentions/hashtags → removing punctuation/numbers → tokenization →
+   stopword removal → lemmatization → the final cleaned text. Click **"🔀
+   Shuffle"** to see a different random example.
+4. **Feature Extraction (TF-IDF)** — shows the actual numeric weights the
+   currently-selected model assigns to the words in your example.
+5. **Outlier Handling** — a summary of how many comments are extremely short
+   or contain spam-like repeated characters (flagged, not automatically
+   removed, since even short comments can be genuinely abusive).
+6. **Before & After Comparison** and **Processed Dataset Preview** — see
+   several real comments next to their cleaned versions.
+
+---
+
+## 4. Cyberbully Detection
+
+This page has **three tabs** for three different ways to check for
+cyberbullying. The **Model** and **Detection sensitivity** controls near the
+top of the page apply to all three tabs.
+
+### Tab: ✍️ Enter Comment
+
+**What it's for:** test one sentence quickly, or paste several at once.
+
+**How to use it:**
+1. Type or paste your comment(s) — **one per line** if you have more than one.
+2. (Optional) Click **"Load example"** to auto-fill sample comments for a quick demo.
+3. Click **"Analyze"**.
+4. **One comment** → a full result card: verdict, confidence per category
+   (progress bars), the specific words highlighted in red, a plain-English
+   explanation, and a **suggested next step**.
+   **Multiple comments** → a summary table, charts, and a CSV download.
+5. Click **"Clear"** to start over.
+
+### Tab: 📁 Import CSV
+
+**What it's for:** analyze many comments at once from a file you already have.
+
+**How to use it:**
+1. Upload a **CSV** (pick which column holds the comment text) or a **TXT**
+   file (one comment per line).
+2. Click **"Analyze file"**.
+3. Review the summary metrics, results table, and charts, then download the
+   full results as CSV.
+
+### Tab: 🌐 Social Media URL
+
+**What it's for:** pull public comments directly from a YouTube video or
+Reddit thread and analyze them all at once.
+
+**What you must know:**
+- ✅ **Supported: YouTube and Reddit**, via each platform's official public API.
+- ❌ **Not supported: Facebook, Instagram, X/Twitter, TikTok** — their Terms
+  of Service prohibit automated collection. Paste those comments manually
+  into the Enter Comment tab instead.
+- 🔑 **YouTube needs a free API key — and it really is free** (no credit
+  card, just a Google account). The page has a step-by-step box for getting
+  one. **Reddit needs no key at all.**
+- 🧪 **No key? Use "Demo comments"** — built-in sample comments so you can
+  try (or demonstrate) the feature with zero setup. Always clearly labeled
+  as demo data, never real.
+
+**How to use it:**
+1. (If using YouTube) paste your API key into the box provided.
+2. Paste the video/thread URL, and set how many comments to fetch.
+3. Click **"Fetch comments"** (or **"Use demo comments"**).
+4. Expand **"Preview retrieved comments"** to skim them first if you like.
+5. Click **"Analyze comments"** to run detection on all of them, then review
+   the summary and download results if needed.
+
+---
+
+## 5. Model Evaluation
+
+**What it's for:** the formal performance report — the metrics required for
+the assignment (Accuracy, Precision, Recall, F1, Confusion Matrix), reported
+the way most classification papers report them.
+
+**What's on it:**
+- **Model Overview** — each model with its feature extraction method and algorithm type.
+- **Same-Comment Prediction** — type a comment and compare all three models' predictions on it side by side.
+- **Evaluation Metrics table** — including:
+  - **Accuracy** — the headline number, averaged per-label (each of the 6
+    categories scored as its own yes/no question, then averaged). This is
+    the number comparable to what most papers report.
+  - **Subset Accuracy** — also shown, but this is a much stricter "all 6
+    labels correct at once" measure and will always look lower — that's
+    expected for multi-label systems, not a weakness.
+  - Precision, Recall, F1 (macro and weighted), Training Time, Prediction Time.
+- **Confusion Matrix & Classification Report** — click **"Compute confusion
+  matrices & classification report"** to see per-category detail for
+  whichever model is currently selected.
+- **Performance Visualization** — pick a metric from the dropdown to chart it
+  across all three models.
+- **Overall Evaluation Summary** — auto-generated: which model has the
+  highest accuracy, best macro-F1, fastest training, fastest prediction, plus
+  a short strengths/weaknesses note for each model.
 
 ---
 
 ## Quick reference: which page do I need?
 
-| I want to... | Use this page |
+| I want to... | Go to |
 |---|---|
-| Test one sentence quickly | Text Detection |
-| Check a list of comments I already have | Text Detection (paste one per line) |
-| Pull comments from a YouTube video or Reddit thread | Social Media Detection |
-| Analyze a spreadsheet or text file of comments | Batch File Detection |
-| See if different models agree on a comment | Model Comparison |
+| Understand what this project does | Home |
 | Learn about the training data | Dataset Statistics |
+| See how raw text becomes model input | Data Preprocessing |
+| Test one sentence quickly | Cyberbully Detection → Enter Comment |
+| Analyze a spreadsheet or text file of comments | Cyberbully Detection → Import CSV |
+| Pull comments from a YouTube video or Reddit thread | Cyberbully Detection → Social Media URL |
 | Get official accuracy/precision/recall/F1 numbers | Model Evaluation |
