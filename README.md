@@ -37,24 +37,30 @@ Or open **`Cyberbully_Detection.ipynb`** in Jupyter/Colab and Run All.
 
 ## Application pages
 
-Navigate using the **top navigation bar** (not a sidebar) — click any page name
-to switch. Each page has an **ℹ️ How to use this page** guide, and the model
-picker / sensitivity slider only appear on pages that actually use them.
+Navigate using the **top navigation bar** (minimal text links, not a sidebar) —
+click any page name to switch. Inline **help tooltips** (the small (?) icon)
+sit right next to each input, so guidance is where you need it instead of in
+a separate box.
 
 | Page | What it does |
 |------|--------------|
-| **Home** | Project intro, objectives, supported categories |
-| **Text Detection** | Analyse one comment or many (one per line) |
-| **Social Media Detection** | Fetch + analyse comments from a YouTube or Reddit URL |
-| **Batch File Detection** | Upload a CSV/TXT of comments and analyse in bulk |
-| **Model Comparison** | Run all three models on the same input side by side |
-| **Dataset Statistics** | Dataset size, class balance, lengths, word frequencies |
-| **Model Evaluation** | Accuracy, Precision, Recall, F1, confusion matrices |
+| **Home** | Project intro, objectives, NLP task, implemented models, dataset summary |
+| **Dataset Statistics** | Dataset overview/info, class & category distribution, word cloud, NLP workflow diagram |
+| **Data Preprocessing** | Live before/after demo of every cleaning step, quality checks, TF-IDF preview |
+| **Cyberbully Detection** | Three tabs: Enter Comment, Import CSV, Social Media URL |
+| **Model Evaluation** | Accuracy (per-label, paper-comparable), Precision/Recall/F1, confusion matrices, classification report, training/prediction time |
 
 Every result includes: prediction, confidence score, model used, processing time,
 category breakdown with progress bars, highlighted offensive words, a
 plain-English explanation, and a **suggested next step** (e.g. save evidence,
 report to the platform, escalate if it's a repeated pattern).
+
+**A note on "Accuracy":** the headline **Accuracy** metric is the *per-label*
+average (each of the 6 categories scored as its own yes/no question, then
+averaged) — this is the number comparable to what most classification papers
+report, typically 82–84% here. **Subset Accuracy** is also shown, but it's a
+much stricter "all 6 labels correct at once" measure and will always look
+lower for any multi-label system — that's expected, not a sign of a weak model.
 
 ---
 
@@ -87,12 +93,12 @@ The model outputs **six labels at once** (a comment can carry several):
 | Facebook / Instagram / X / TikTok | ❌ No | Their Terms of Service **prohibit** automated comment collection, and they block it technically |
 
 The app states this clearly rather than pretending otherwise. For unsupported
-platforms, copy comments manually into the **Text Detection** page. A **demo
+platforms, copy comments manually into the **Cyberbully Detection → Enter Comment** tab. A **demo
 mode** with built-in sample comments is provided so the feature can be shown
 without an API key — the app always labels demo data as such.
 
 **To enable YouTube:** get a free key from Google Cloud Console (enable
-"YouTube Data API v3"), then paste it into the box on the Social Media Detection page — it's completely free, no credit card required.
+"YouTube Data API v3"), then paste it into the box on the Cyberbully Detection page's Social Media URL tab — it's completely free, no credit card required.
 
 ---
 
