@@ -84,6 +84,51 @@ def clean_text(text: str) -> str:
     return " ".join(out)
 
 
+def clean_text_steps(text: str) -> dict:
+    """
+    Same pipeline as clean_text(), but returns every intermediate stage as a
+    dict - used by the Data Preprocessing page to show a live before/after
+    demo. Mirrors clean_text() exactly so the demo can never drift out of
+    sync with what the models actually use.
+    """
+    original = str(text)
+    steps = {"0. Original": original}
+
+    s = original.lower()
+    steps["1. Lowercase"] = s
+
+    s = _RE_URL.sub(" ", s)
+    s = _RE_HTML.sub(" ", s)
+    s = _RE_MENTION.sub(" ", s)
+    s = s.replace("#", " ")
+    steps["2. Remove URLs / HTML / mentions / hashtags"] = _RE_SPACES.sub(" ", s).strip()
+
+    s = _RE_NONALPHA.sub(" ", s)
+    s = _RE_SPACES.sub(" ", s).strip()
+    steps["3. Remove punctuation / numbers / special characters"] = s
+
+    if _USE_NLTK:
+        try:
+            tokens = word_tokenize(s)
+        except Exception:
+            tokens = s.split()
+    else:
+        tokens = s.split()
+    steps["4. Tokenization"] = " | ".join(tokens) if tokens else "(empty)"
+
+    no_stop = [t for t in tokens if len(t) >= 2 and t not in _STOPWORDS]
+    steps["5. Stopword removal"] = " | ".join(no_stop) if no_stop else "(empty)"
+
+    if _LEMMATIZER is not None:
+        lemmatized = [_LEMMATIZER.lemmatize(t) for t in no_stop]
+    else:
+        lemmatized = no_stop
+    steps["6. Lemmatization"] = " | ".join(lemmatized) if lemmatized else "(empty)"
+
+    steps["7. Final cleaned text (fed to the model)"] = " ".join(lemmatized)
+    return steps
+
+
 def preprocess_series(series):
     """Vectorized helper: clean an entire pandas Series of texts."""
     return series.astype(str).apply(clean_text)
