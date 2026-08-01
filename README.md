@@ -12,6 +12,8 @@ the **influential words**, and **compares three machine-learning models**.
 | Member 2 | **Linear SVM** + TF-IDF | `models/member2_svm.py` |
 | Member 3 | **Random Forest** + TF-IDF | `models/member3_random_forest.py` |
 
+**Access Link: https://cybershield-lowlp-chaixl-wongwh.streamlit.app/**
+
 ---
 
 ## Quick start
