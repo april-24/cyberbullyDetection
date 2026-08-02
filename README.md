@@ -12,8 +12,6 @@ the **influential words**, and **compares three machine-learning models**.
 | Member 2 | **Linear SVM** + TF-IDF | `models/member2_svm.py` |
 | Member 3 | **Random Forest** + TF-IDF | `models/member3_random_forest.py` |
 
-**Access Link: https://cybershield-lowlp-chaixl-wongwh.streamlit.app/**
-
 ---
 
 ## Quick start
@@ -92,7 +90,8 @@ The model outputs **six labels at once** (a comment can carry several):
 |----------|-----------|--------|
 | **YouTube** | ✅ Yes | Official **YouTube Data API v3** (needs your own free key) |
 | **Reddit** | ✅ Yes | Public `.json` endpoints |
-| Facebook / Instagram / X / TikTok | ❌ No | Their Terms of Service **prohibit** automated comment collection, and they block it technically |
+| **X / Twitter** | ❌ No | As of Feb 2026, X removed its free API tier entirely — it's now pay-per-use with no free allowance (~$0.005/read, ~2M read/month cap). Some published research papers used X data collected before this change, or under special academic agreements no longer available to new developers. |
+| Facebook / Instagram / TikTok | ❌ No | Their Terms of Service **prohibit** automated comment collection from arbitrary posts, and they block it technically. Meta's official Graph API is designed for managing pages/ads you own, not scraping public content. |
 
 The app states this clearly rather than pretending otherwise. For unsupported
 platforms, copy comments manually into the **Cyberbully Detection → Enter Comment** tab. A **demo
@@ -106,21 +105,56 @@ without an API key — the app always labels demo data as such.
 
 ## Results (held-out 20% test set, threshold 0.50)
 
-| Model | Micro-F1 | Macro-F1 | Subset Acc. | Hamming Loss |
-|-------|:--------:|:--------:|:-----------:|:------------:|
-| **Logistic Regression** | **0.704** | **0.679** | 0.363 | 0.165 |
-| Random Forest | 0.692 | 0.678 | 0.351 | 0.165 |
-| Linear SVM | 0.688 | 0.654 | 0.348 | 0.172 |
+| Model | Accuracy | Micro-F1 | Macro-F1 | Subset Acc. | Train Time | Predict Time |
+|-------|:--------:|:--------:|:--------:|:-----------:|:----------:|:------------:|
+| **Random Forest** | **0.849** | **0.709** | 0.689 | 0.392 | 87.0s | 1.80s |
+| Logistic Regression | 0.836 | 0.706 | **0.679**† | 0.369 | 5.8s | 0.48s |
+| Linear SVM | 0.829 | 0.688 | 0.652 | 0.352 | 8.5s | 0.48s |
+
+†Weighted-F1 tells a slightly different story per model — see `results/model_scores.csv` for the full metric set (precision/recall/F1 in micro, macro, *and* weighted averaging).
 
 **Discussion points for your report:**
-- Logistic Regression wins on **recall** (0.72) — it catches the most abuse.
-- Random Forest wins on **precision** (0.70) — fewer false alarms.
-- All three are close, which is itself a finding: on TF-IDF features the choice
-  of classifier matters less than the quality of the features.
-- **Subset accuracy looks low (~0.35)** because it demands *all six* labels be
-  correct simultaneously. That is normal and expected for multi-label tasks —
-  Hamming loss (~0.17, i.e. ~83% of individual label decisions correct) is the
-  fairer read.
+- All three models use the **same feature set**: word-level TF-IDF (unigrams +
+  bigrams) *plus* character-level TF-IDF (3-5 letter n-grams) — see "Evasion
+  & obfuscation detection" below for why.
+- Random Forest edges out the linear models on raw accuracy and F1 here, but
+  takes ~10-15x longer to train and predict, and produces a much larger model
+  file (~33 MB vs ~2 MB) — a real accuracy/cost tradeoff worth discussing.
+- **Random Forest's confidence scores run more conservative** than the linear
+  models', even on comments it classifies correctly — a well-documented
+  structural property of ensemble voting over sparse, high-dimensional text
+  (each split only sees a random subset of features, so short comments often
+  don't reach the words that matter in many trees). This is *not* a bug; it's
+  a legitimate, citable limitation for your report's model comparison.
+- **Subset accuracy looks low (~0.35-0.39)** because it demands *all six*
+  labels be correct simultaneously. That is normal and expected for
+  multi-label tasks — **Accuracy** (per-label average, ~83-85%) is the fairer,
+  paper-comparable read.
+
+---
+
+## Evasion & obfuscation detection
+
+People trying to slip an offensive word past a filter typically do one of
+three things — all handled by `src/preprocessing.py` before the "strip
+everything but letters" step, so the underlying word survives instead of
+being destroyed:
+
+| Trick | Example | Normalized to |
+|-------|---------|---------------|
+| Leetspeak substitution | `n1gg4`, `sh1t`, `@sshole` | `nigga`, `shit`, `asshole` |
+| Spaced-out letters | `n.i.g.g.a`, `s h i t` | `nigga`, `shit` |
+| Repeated-character spam | `stuuuupid` | `stupid` |
+
+This is **not a complete solution** — evasion detection is fundamentally an
+arms race, and new obfuscation tricks will always exist. As a second,
+complementary layer, every model also uses **character n-gram features**
+(3-5 letter chunks), which can catch obfuscation patterns the explicit rules
+above don't know about, because a lightly disguised word still shares most of
+its character substrings with the original. Both points are worth stating
+plainly in your report's limitations section — being upfront about what a
+detection system *can't* fully solve is a stronger academic position than
+implying it's solved.
 
 ---
 
@@ -221,6 +255,56 @@ cyberbully_detection/
   Hamming loss, and confusion matrices — all the metrics the spec requires,
   displayed live in the **Model Evaluation** and **Model Comparison** pages.
 - **(g) Reliable dataset source** — HateXplain, a peer-reviewed academic dataset.
+
+---
+
+## Ideas for pushing toward an Excellent grade
+
+Beyond what's already built, these are realistic, scoped additions if you
+have time left before the deadline — roughly ordered by effort:
+
+**Low effort, real payoff:**
+- **Manual data augmentation for minority categories.** Gender and
+  Miscellaneous have the weakest F1 scores because they have the fewest
+  training examples — labeling even 100-200 more examples specifically for
+  these categories (via `crawler/annotate_data.py`) would likely move these
+  numbers more than any hyperparameter tweak.
+- **Inter-annotator agreement.** If two group members independently label the
+  same 50-100 crawled comments, compute agreement (e.g. Cohen's Kappa) between
+  them. This is a genuine, citable data-quality metric that most student
+  projects skip.
+- **Error analysis section.** Pull 10-15 misclassified test-set comments
+  (false positives and false negatives) and discuss *why* the model got them
+  wrong — sarcasm, coded language, short context, etc. This is exactly the
+  kind of critical analysis the rubric's "Results & Discussion" section rewards.
+
+**Medium effort:**
+- **A fourth model for contrast.** Everything here is TF-IDF-based; adding
+  one model that uses a fundamentally different representation (e.g. word
+  embeddings via Word2Vec/GloVe, or a small pretrained transformer like
+  DistilBERT) gives a much stronger "compare different feature extraction
+  approaches" narrative than three TF-IDF variants. Fair warning: a
+  transformer model is a real jump in setup complexity and training time —
+  scope it carefully against your remaining time.
+- **Threshold tuning per label, not just globally.** Right now one threshold
+  applies to all 6 categories. Tuning a separate optimal threshold per
+  category (maximizing F1 per label on a validation split) is a legitimate
+  technique and would likely raise macro-F1 measurably.
+- **Malay-language preprocessing.** The current pipeline is English-tuned
+  (English stopwords/lemmatizer). Adding a Malay stopword list and even basic
+  Malay-aware tokenization would directly strengthen the Malaysia angle of
+  this project, and ties directly into the crawler/labeling work already built.
+
+**Higher effort, strong differentiator:**
+- **User study / usability evaluation.** Have a few classmates or friends use
+  the app and rate the explanations/suggested actions for clarity and
+  trustworthiness. Real user feedback data is uncommon in student NLP
+  projects and stands out.
+- **Deployment monitoring angle.** Discuss (even without fully building it)
+  how the system would need to be retrained/monitored over time as language
+  and evasion tactics evolve — ties directly into the evasion-detection
+  limitations already documented above, and shows systems-level thinking
+  beyond just model accuracy.
 
 ---
 
