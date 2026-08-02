@@ -49,24 +49,29 @@ MODEL_INFO = {
     },
 }
 
-# Minimal, website-style top navigation: plain text links, not big colored buttons.
+# Minimal, website-style top navigation: plain text links, not big colored
+# buttons. Colors deliberately use currentColor/theme variables rather than
+# hardcoded hex values, so the nav stays readable in both Streamlit's light
+# and dark themes (hardcoded dark-grey text was invisible on the dark theme).
 NAVBAR_CSS = """
 <style>
 div[data-testid="stHorizontalBlock"] div.stButton > button {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-    color: #444 !important;
+    color: var(--text-color, inherit) !important;
+    opacity: 0.75;
     font-size: 15px !important;
     padding: 6px 10px !important;
     width: auto !important;
 }
 div[data-testid="stHorizontalBlock"] div.stButton > button:hover {
-    color: #000 !important;
+    opacity: 1 !important;
     text-decoration: underline !important;
 }
 div[data-testid="stHorizontalBlock"] div.stButton > button p {
     font-size: 15px !important;
+    color: inherit !important;
 }
 </style>
 """
@@ -184,7 +189,7 @@ def result_card(res, threshold, model_name, elapsed, original_text):
     if res["words"]:
         st.write("**Influential words highlighted:**")
         st.markdown(
-            f"<div style='padding:10px;border:1px solid #ddd;border-radius:6px'>"
+            f"<div style='padding:10px;border:1px solid rgba(128,128,128,0.4);border-radius:6px'>"
             f"{highlight_html(original_text, res['words'])}</div>",
             unsafe_allow_html=True)
 
@@ -264,11 +269,17 @@ def render_workflow_diagram():
     stages = ["Raw Text", "Text Cleaning", "Tokenization", "Stopword\nRemoval",
               "Lemmatization", "Feature\nExtraction\n(TF-IDF)", "Classification",
               "Prediction"]
+    # Uses a semi-transparent grey overlay (rgba) instead of a hardcoded light
+    # background - a solid light background with inherited (theme) text color
+    # turned invisible (white-on-white) under Streamlit's dark theme. rgba
+    # overlays stay readable against both light and dark backgrounds, and
+    # text color is left to inherit rather than hardcoded.
     boxes = "".join(
         f"<div style='display:inline-block;padding:10px 14px;margin:4px;"
-        f"border:1px solid #ccc;border-radius:8px;background:#fafafa;"
+        f"border:1px solid rgba(128,128,128,0.4);border-radius:8px;"
+        f"background:rgba(128,128,128,0.12);color:inherit;"
         f"font-size:13px;text-align:center;white-space:pre-line'>{s}</div>"
-        + ("<span style='margin:0 4px;color:#999'>&#8594;</span>" if i < len(stages)-1 else "")
+        + ("<span style='margin:0 4px;color:rgba(128,128,128,0.9)'>&#8594;</span>" if i < len(stages)-1 else "")
         for i, s in enumerate(stages)
     )
     st.markdown(f"<div style='line-height:2.6'>{boxes}</div>", unsafe_allow_html=True)
@@ -545,17 +556,22 @@ elif page == "Data Preprocessing":
         st.markdown(f"**{step_name}**")
         st.code(step_value if step_value else "(empty)", language=None)
 
-    st.markdown("### Feature Extraction (TF-IDF)")
+    st.markdown("### Feature Extraction (TF-IDF: word + character n-grams)")
     st.write("The cleaned text above is converted into numbers using TF-IDF "
             "(Term Frequency – Inverse Document Frequency), which weighs "
-            "words by how distinctive they are, not just how often they appear.")
+            "words by how distinctive they are, not just how often they appear. "
+            "Two kinds of features are extracted: whole **words** (shown below) "
+            "and **character n-grams** (3-5 letter chunks) — the character "
+            "features are what let the models catch lightly disguised or "
+            "misspelled words that don't match any known word exactly.")
     try:
+        from src.predictor import _get_word_vectorizer
         bundle = get_model(MODELS[st.session_state.get("sel_model", list(MODELS.keys())[0])])
-        vectorizer = bundle["pipeline"].named_steps["tfidf"]
-        cleaned_final = steps["7. Final cleaned text (fed to the model)"]
-        if cleaned_final.strip():
-            vec = vectorizer.transform([cleaned_final])
-            feat_names = vectorizer.get_feature_names_out()
+        cleaned_final = steps["8. Final cleaned text (fed to the model)"]
+        word_vec, _, _ = _get_word_vectorizer(bundle["pipeline"])
+        if cleaned_final.strip() and word_vec is not None:
+            vec = word_vec.transform([cleaned_final])
+            feat_names = word_vec.get_feature_names_out()
             nz = vec.nonzero()[1]
             if len(nz):
                 tfidf_df = pd.DataFrame({
@@ -564,7 +580,24 @@ elif page == "Data Preprocessing":
                 }).sort_values("TF-IDF weight", ascending=False)
                 st.dataframe(tfidf_df, width="stretch")
             else:
-                st.caption("None of these words are in the model's TF-IDF vocabulary.")
+                st.caption("None of these words are in the model's word-level vocabulary.")
+
+            # Illustrative char n-gram example (not the full ~6-10k feature
+            # vocabulary - just enough to show what the model actually sees).
+            union = bundle["pipeline"].named_steps.get("features")
+            if union is not None:
+                char_vec = dict(union.transformer_list).get("char")
+                if char_vec is not None:
+                    cvec = char_vec.transform([cleaned_final])
+                    cfeat = char_vec.get_feature_names_out()
+                    cnz = cvec.nonzero()[1]
+                    if len(cnz):
+                        example = pd.DataFrame({
+                            "Character n-gram": [cfeat[i] for i in cnz],
+                            "TF-IDF weight": [round(cvec[0, i], 4) for i in cnz],
+                        }).sort_values("TF-IDF weight", ascending=False).head(10)
+                        st.caption("Example character n-grams extracted (top 10 by weight):")
+                        st.dataframe(example, width="stretch")
         else:
             st.caption("Nothing left to vectorize after cleaning.")
     except Exception as e:
