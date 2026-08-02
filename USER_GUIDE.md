@@ -112,6 +112,13 @@ top of the page apply to all three tabs.
 
 **What it's for:** test one sentence quickly, or paste several at once.
 
+**Good to know:** the system recognizes common attempts to dodge detection —
+leetspeak substitutions (`n1gg4`, `sh1t`), letters spaced apart
+(`n.i.g.g.a`), and repeated-character spam (`stuuuupid`) are all normalized
+before analysis. This isn't foolproof (evasion is an ongoing arms race), but
+it catches the common cases plus, via character-level features, many patterns
+that weren't explicitly anticipated.
+
 **How to use it:**
 1. Type or paste your comment(s) — **one per line** if you have more than one.
 2. (Optional) Click **"Load example"** to auto-fill sample comments for a quick demo.
@@ -140,7 +147,9 @@ Reddit thread and analyze them all at once.
 
 **What you must know:**
 - ✅ **Supported: YouTube and Reddit**, via each platform's official public API.
-- ❌ **Not supported: Facebook, Instagram, X/Twitter, TikTok** — their Terms
+- ❌ **Not supported: Facebook, Instagram, X/Twitter, TikTok.** X/Twitter's API
+  became fully pay-per-use (no free tier at all) in February 2026. The
+  others' Terms
   of Service prohibit automated collection. Paste those comments manually
   into the Enter Comment tab instead.
 - 🔑 **YouTube needs a free API key — and it really is free** (no credit
