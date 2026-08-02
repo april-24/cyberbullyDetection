@@ -1,0 +1,4 @@
+model,accuracy,subset_accuracy,hamming_loss,f1_micro,f1_macro,f1_weighted,precision_micro,recall_micro,train_time_sec,predict_time_sec
+Logistic Regression,0.8357,0.3685,0.1643,0.706,0.6792,0.7112,0.6888,0.724,5.8,0.4835
+Linear SVM,0.8287,0.3523,0.1713,0.6883,0.6517,0.6911,0.6823,0.6944,8.54,0.4808
+Random Forest,0.8492,0.3921,0.1508,0.7093,0.689,0.7068,0.7466,0.6755,86.967,1.7955
