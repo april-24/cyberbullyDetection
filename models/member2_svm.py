@@ -1,7 +1,7 @@
 """
 member2_svm.py   (MEMBER 2's solution)
 ======================================
-Method : Linear Support Vector Machine (LinearSVC) + TF-IDF features
+Method : Linear Support Vector Machine (LinearSVC) + TF-IDF features (word + character n-grams)
 Wrapper: OneVsRestClassifier (one SVM per label -> multi-label)
 
 An SVM finds the separating hyperplane with the widest margin between classes.
@@ -17,13 +17,12 @@ Run from the project root:
 import os
 import sys
 import argparse
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.pipeline import Pipeline
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.train_utils import train_and_save
+from src.train_utils import train_and_save, build_word_char_features
 
 MODEL_NAME = "Linear SVM"
 MODEL_PATH = "results/model_svm.joblib"
@@ -31,8 +30,8 @@ MODEL_PATH = "results/model_svm.joblib"
 
 def build_pipeline():
     return Pipeline([
-        ("tfidf", TfidfVectorizer(max_features=30000, ngram_range=(1, 2),
-                                  min_df=2, sublinear_tf=True)),
+        ("features", build_word_char_features(word_max_features=30000,
+                                              char_max_features=10000)),
         ("clf", OneVsRestClassifier(LinearSVC(C=1.0, class_weight="balanced"))),
     ])
 
