@@ -1,7 +1,7 @@
 """
 member1_logistic_regression.py   (MEMBER 1's solution)
 ======================================================
-Method : Logistic Regression + TF-IDF features
+Method : Logistic Regression + TF-IDF features (word + character n-grams)
 Wrapper: OneVsRestClassifier (one LR per label -> multi-label)
 
 Logistic Regression models the probability of each label with a linear decision
@@ -16,13 +16,12 @@ Run from the project root:
 import os
 import sys
 import argparse
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.pipeline import Pipeline
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.train_utils import train_and_save
+from src.train_utils import train_and_save, build_word_char_features
 
 MODEL_NAME = "Logistic Regression"
 MODEL_PATH = "results/model_lr.joblib"
@@ -30,8 +29,8 @@ MODEL_PATH = "results/model_lr.joblib"
 
 def build_pipeline():
     return Pipeline([
-        ("tfidf", TfidfVectorizer(max_features=30000, ngram_range=(1, 2),
-                                  min_df=2, sublinear_tf=True)),
+        ("features", build_word_char_features(word_max_features=30000,
+                                              char_max_features=10000)),
         ("clf", OneVsRestClassifier(
             LogisticRegression(max_iter=1000, C=3.0, class_weight="balanced"))),
     ])
