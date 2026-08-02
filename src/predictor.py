@@ -77,18 +77,49 @@ def predict(bundle, text, threshold=0.5):
     }
 
 
+def _get_word_vectorizer(pipeline):
+    """
+    Pipelines now use a FeatureUnion of a WORD-level and a CHARACTER-level
+    TF-IDF vectorizer (see src/train_utils.py). For word-highlighting we only
+    want the word-level one - highlighting a 3-5 character substring like
+    "tup" wouldn't mean anything to someone reading the app.
+
+    Returns (word_vectorizer, start_index, end_index) where start/end mark
+    where the word vectorizer's features sit within the full concatenated
+    feature vector the classifier was actually trained on - needed to slice
+    out the right coefficients/importances below.
+    Falls back to a plain single "tfidf" step for older model files.
+    """
+    if "features" in pipeline.named_steps:
+        union = pipeline.named_steps["features"]
+        offset = 0
+        for name, transformer in union.transformer_list:
+            n_feat = len(transformer.get_feature_names_out())
+            if name == "word":
+                return transformer, offset, offset + n_feat
+            offset += n_feat
+        return None, None, None
+    if "tfidf" in pipeline.named_steps:
+        tfidf = pipeline.named_steps["tfidf"]
+        return tfidf, 0, len(tfidf.get_feature_names_out())
+    return None, None, None
+
+
 def _influential_words(pipeline, cleaned, labels, flagged, top_k=8):
     """Find the unigram tokens in the comment that pushed it toward its labels."""
     try:
-        tfidf = pipeline.named_steps["tfidf"]
         clf = pipeline.named_steps["clf"]
     except (AttributeError, KeyError):
         return []
 
-    row = tfidf.transform([cleaned])
+    word_vec, start, end = _get_word_vectorizer(pipeline)
+    if word_vec is None:
+        return []
+
+    row = word_vec.transform([cleaned])
     if row.nnz == 0:
         return []
-    feat_names = tfidf.get_feature_names_out()
+    feat_names = word_vec.get_feature_names_out()
     nz = row.indices                      # feature indices present in this comment
 
     # Which label estimators to look at (the ones that fired; else all)
@@ -99,11 +130,12 @@ def _influential_words(pipeline, cleaned, labels, flagged, top_k=8):
     for i in idxs:
         est = clf.estimators_[i]
         if hasattr(est, "coef_"):                 # LR / LinearSVC
-            w = np.asarray(est.coef_).ravel()
+            w_full = np.asarray(est.coef_).ravel()
         elif hasattr(est, "feature_importances_"):  # Random Forest
-            w = est.feature_importances_
+            w_full = est.feature_importances_
         else:
             continue
+        w = w_full[start:end]             # slice out just the word-feature weights
         for j in nz:
             contrib[j] += row[0, j] * w[j]
 
