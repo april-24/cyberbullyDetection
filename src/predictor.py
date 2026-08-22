@@ -30,8 +30,27 @@ def available_models():
 
 
 def load_model(path):
-    """Load a saved {pipeline, labels} bundle."""
-    return joblib.load(path)
+    """Load a saved {pipeline, labels} bundle.
+
+    Forces n_jobs=1 on any RandomForest estimators inside the pipeline. RF
+    was trained with n_jobs=-1 to use all CPU cores during training (good -
+    training processes many rows at once), but for a SINGLE-comment
+    prediction that same setting can make things slower, not faster: joblib
+    has to spin up a parallel worker pool for one tiny row of work, and on a
+    constrained server (e.g. Streamlit Community Cloud's shared/limited CPU)
+    that overhead can dominate over the actual computation. Sequential
+    (n_jobs=1) evaluation of a single row is typically faster in practice.
+    """
+    bundle = joblib.load(path)
+    try:
+        clf = bundle["pipeline"].named_steps.get("clf")
+        estimators = getattr(clf, "estimators_", None) or []
+        for est in estimators:
+            if hasattr(est, "n_jobs"):
+                est.n_jobs = 1
+    except Exception:
+        pass  # non-RF models have no n_jobs attribute - nothing to do
+    return bundle
 
 
 def _label_probs(pipeline, texts):
@@ -133,6 +152,13 @@ def _influential_words(pipeline, cleaned, labels, flagged, top_k=8):
             w_full = np.asarray(est.coef_).ravel()
         elif hasattr(est, "feature_importances_"):  # Random Forest
             w_full = est.feature_importances_
+        elif hasattr(est, "feature_log_prob_"):     # Multinomial Naive Bayes
+            # feature_log_prob_ is (n_classes, n_features): log P(word | class).
+            # The log-odds ratio (positive class vs negative class) gives a
+            # signed "how much does this word push toward abusive" score,
+            # analogous to a linear model's coefficient.
+            log_prob = est.feature_log_prob_
+            w_full = log_prob[1] - log_prob[0] if log_prob.shape[0] == 2 else log_prob[0]
         else:
             continue
         w = w_full[start:end]             # slice out just the word-feature weights

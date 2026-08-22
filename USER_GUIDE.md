@@ -24,8 +24,8 @@ On the **Cyberbully Detection** page, you'll see two controls near the top:
 
 | Control | What it does |
 |---------|---------------|
-| **Model** | Choose which of the three trained models (Logistic Regression, Linear SVM, Random Forest) is used for detection. |
-| **Detection sensitivity (threshold)** | How confident the model must be before it flags something as cyberbullying. **Lower** = flags more comments (catches more, but more false alarms). **Higher** = stricter (fewer false alarms, may miss some). Default is 0.60. |
+| **Model** | Choose which trained model performs the detection: Logistic Regression, Linear SVM, and Random Forest (the assignment's three required methods), plus an optional 4th — Naive Bayes — included for you to compare and test. |
+| **Detection sensitivity (threshold)** | How confident the model must be before it flags something as cyberbullying. **Lower** = flags more comments (catches more, but more false alarms). **Higher** = stricter (fewer false alarms, may miss some). **Each model has its own default** — the slider auto-resets to that model's own evidence-based best value whenever you switch models, since different algorithms produce confidence scores on different scales. |
 
 These apply across all three tabs on that page (Enter Comment, Import CSV,
 Social Media URL). You don't need to touch them to use the app — the
@@ -177,7 +177,7 @@ the way most classification papers report them.
 
 **What's on it:**
 - **Model Overview** — each model with its feature extraction method and algorithm type.
-- **Same-Comment Prediction** — type a comment and compare all three models' predictions on it side by side.
+- **Same-Comment Prediction** — type a comment and compare all available models' predictions on it side by side (each judged against its own threshold, shown in the table).
 - **Evaluation Metrics table** — including:
   - **Accuracy** — the headline number, averaged per-label (each of the 6
     categories scored as its own yes/no question, then averaged). This is
@@ -190,7 +190,7 @@ the way most classification papers report them.
   matrices & classification report"** to see per-category detail for
   whichever model is currently selected.
 - **Performance Visualization** — pick a metric from the dropdown to chart it
-  across all three models.
+  across all available models.
 - **Overall Evaluation Summary** — auto-generated: which model has the
   highest accuracy, best macro-F1, fastest training, fastest prediction, plus
   a short strengths/weaknesses note for each model.

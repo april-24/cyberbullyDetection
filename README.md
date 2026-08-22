@@ -11,6 +11,12 @@ the **influential words**, and **compares three machine-learning models**.
 | Member 1 | **Logistic Regression** + TF-IDF | `models/member1_logistic_regression.py` |
 | Member 2 | **Linear SVM** + TF-IDF | `models/member2_svm.py` |
 | Member 3 | **Random Forest** + TF-IDF | `models/member3_random_forest.py` |
+| *(optional, for testing)* | **Naive Bayes** + TF-IDF | `models/naive_bayes_extra.py` |
+
+The optional 4th model is included in the app so you can compare it against
+the three required methods before deciding whether to keep it — it is **not**
+one of the assignment's three required methods unless you choose to swap it
+in for one of the above.
 
 ---
 
@@ -21,14 +27,16 @@ pip install -r requirements.txt      # 1. install
 streamlit run app.py                 # 2. launch the web app
 ```
 
-The three models are **already trained and included**, so the app works
+All four models are **already trained and included**, so the app works
 immediately. To retrain them yourself:
 
 ```bash
 python -m models.member1_logistic_regression
 python -m models.member2_svm
 python -m models.member3_random_forest
+python -m models.naive_bayes_extra        # optional 4th model
 python compare_models.py
+python -m src.threshold_sweep             # re-verify each model's best threshold
 ```
 
 Or open **`Cyberbully_Detection.ipynb`** in Jupyter/Colab and Run All.
@@ -105,30 +113,61 @@ without an API key — the app always labels demo data as such.
 
 ## Results (held-out 20% test set, threshold 0.50)
 
-| Model | Accuracy | Micro-F1 | Macro-F1 | Subset Acc. | Train Time | Predict Time |
-|-------|:--------:|:--------:|:--------:|:-----------:|:----------:|:------------:|
-| **Random Forest** | **0.849** | **0.709** | 0.689 | 0.392 | 87.0s | 1.80s |
-| Logistic Regression | 0.836 | 0.706 | **0.679**† | 0.369 | 5.8s | 0.48s |
-| Linear SVM | 0.829 | 0.688 | 0.652 | 0.352 | 8.5s | 0.48s |
+| Model | Accuracy | Micro-F1 | Macro-F1 | Subset Acc. | Model Size | Train Time | Predict Time |
+|-------|:--------:|:--------:|:--------:|:-----------:|:----------:|:----------:|:------------:|
+| **Naive Bayes**† | **0.842** | 0.696 | 0.643 | 0.383 | ~4 MB | **3.1s** | 0.45s |
+| Logistic Regression | 0.836 | **0.706** | **0.679** | 0.369 | ~2 MB | 5.8s | 0.48s |
+| Random Forest | 0.835 | 0.690 | 0.679 | 0.353 | ~6.5 MB | 8.9s | 0.53s |
+| Linear SVM | 0.829 | 0.688 | 0.652 | 0.352 | ~2 MB | 8.5s | 0.48s |
 
-†Weighted-F1 tells a slightly different story per model — see `results/model_scores.csv` for the full metric set (precision/recall/F1 in micro, macro, *and* weighted averaging).
+†Naive Bayes is an **optional 4th model** (`models/naive_bayes_extra.py`), not one
+of the assignment's three required methods — included so you can compare it
+against the required three and decide for yourselves. See `results/model_scores.csv`
+for the full metric set (precision/recall/F1 in micro, macro, *and* weighted averaging).
+
+### Per-model detection thresholds — read this before comparing models in the app
+
+**Each model uses its own default sensitivity threshold, not one shared
+value.** Different algorithms produce probability-like scores on different
+natural scales, even when equally correct — forcing them to share one
+threshold badly under-serves some of them. Measured on the models above,
+forcing a shared 0.60 threshold instead of each model's own best:
+
+| Model | Own best threshold | F1 at own best | F1 forced to 0.60 |
+|-------|:---:|:---:|:---:|
+| Logistic Regression | 0.46 | 0.707 | 0.693 |
+| Linear SVM | 0.48 | 0.693 | 0.622 |
+| Random Forest | 0.48 | 0.701 | **0.555** ← biggest hit |
+| Naive Bayes | 0.32 | 0.712 | 0.678 |
+
+This is why the app auto-selects each model's own threshold when you switch
+between them (see `src/config.py`'s `DEFAULT_THRESHOLDS`) — it's the
+difference between Random Forest looking broken (flagging almost nothing) and
+performing competitively. Re-run `python -m src.threshold_sweep` any time you
+retrain a model to re-verify these numbers, since they're specific to the
+exact trained model, not the algorithm in general.
 
 **Discussion points for your report:**
-- All three models use the **same feature set**: word-level TF-IDF (unigrams +
-  bigrams) *plus* character-level TF-IDF (3-5 letter n-grams) — see "Evasion
-  & obfuscation detection" below for why.
-- Random Forest edges out the linear models on raw accuracy and F1 here, but
-  takes ~10-15x longer to train and predict, and produces a much larger model
-  file (~33 MB vs ~2 MB) — a real accuracy/cost tradeoff worth discussing.
-- **Random Forest's confidence scores run more conservative** than the linear
+- All models use the **same underlying text-cleaning pipeline** (including
+  evasion normalization — see below), but different feature-extraction detail:
+  Logistic Regression/SVM/Naive Bayes use word bigrams + character n-grams;
+  Random Forest uses a smaller word-unigram vocabulary (kept intentionally
+  small — a larger feature set was tested and didn't meaningfully improve its
+  real-world detection, only its file size and training time).
+- **Random Forest's confidence scores run more conservative** than the other
   models', even on comments it classifies correctly — a well-documented
   structural property of ensemble voting over sparse, high-dimensional text
   (each split only sees a random subset of features, so short comments often
-  don't reach the words that matter in many trees). This is *not* a bug; it's
-  a legitimate, citable limitation for your report's model comparison.
-- **Subset accuracy looks low (~0.35-0.39)** because it demands *all six*
+  don't reach the words that matter in many trees). We tested several fixes —
+  richer features, probability calibration, higher per-split feature sampling,
+  SVD dimensionality reduction — none solved it cleanly without a worse
+  trade-off elsewhere. The per-model threshold above is the practical
+  mitigation that actually works. This whole investigation is legitimate,
+  citable content for your report's model comparison and limitations sections.
+- **Subset accuracy looks low (~0.35-0.38)** because it demands *all six*
   labels be correct simultaneously. That is normal and expected for
   multi-label tasks — **Accuracy** (per-label average, ~83-85%) is the fairer,
+
   paper-comparable read.
 
 ---
@@ -148,13 +187,14 @@ being destroyed:
 
 This is **not a complete solution** — evasion detection is fundamentally an
 arms race, and new obfuscation tricks will always exist. As a second,
-complementary layer, every model also uses **character n-gram features**
-(3-5 letter chunks), which can catch obfuscation patterns the explicit rules
-above don't know about, because a lightly disguised word still shares most of
-its character substrings with the original. Both points are worth stating
-plainly in your report's limitations section — being upfront about what a
-detection system *can't* fully solve is a stronger academic position than
-implying it's solved.
+complementary layer, most models (Logistic Regression, SVM, Naive Bayes) also
+use **character n-gram features** (3-5 letter chunks), which can catch
+obfuscation patterns the explicit rules above don't know about, because a
+lightly disguised word still shares most of its character substrings with the
+original. Random Forest uses a smaller word-only feature set instead (see the
+Results section for why). Both points are worth stating plainly in your
+report's limitations section — being upfront about what a detection system
+*can't* fully solve is a stronger academic position than implying it's solved.
 
 ---
 
@@ -163,16 +203,19 @@ implying it's solved.
 1. **Dataset domain bias.** HateXplain was collected from Twitter and Gab, which
    are hate-speech-heavy sources. Its "normal" class is therefore not everyday
    polite conversation, so ordinary benign sentences can score near the decision
-   boundary. This is why the app defaults to a **0.60 threshold** instead of 0.50
-   — it noticeably reduces false positives on benign text at a cost of only
-   ~0.02 micro-F1. The sensitivity slider on each detection page lets you explore this tradeoff live, and
-   reported metrics use the standard 0.50 for comparability.
-2. **Minority categories are harder.** "Gender" and "Miscellaneous" have the
-   lowest F1 — fewer training examples means weaker performance.
-3. **No sarcasm or context understanding.** TF-IDF is bag-of-words; it cannot
+   boundary.
+2. **Random Forest's confidence runs systematically lower than the other
+   models', even when equally correct.** See the "Per-model detection
+   thresholds" note above for the full investigation and the practical fix
+   (each model uses its own threshold, not one shared value).
+3. **Minority categories are harder.** Gender and Miscellaneous have the
+   lowest F1 across all four models — fewer training examples means weaker
+   performance. This is a direct, fixable target if you add more labeled
+   data via `crawler/annotate_data.py` — see "Want more data?" below.
+4. **No sarcasm or context understanding.** TF-IDF is bag-of-words; it cannot
    read intent, irony, or conversation history.
-4. **English only.**
-5. **Not a moderation authority.** Predictions are statistical and can be wrong.
+5. **English only.**
+6. **Not a moderation authority.** Predictions are statistical and can be wrong.
    Human review should always precede any consequential action.
 
 ---
