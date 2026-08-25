@@ -1,5 +1,5 @@
 """
-CyberShield - Multi-Model Cyberbullying Detection System
+CyberShield - Multi-Model Harmful-Content Detection System
 =========================================================
 Streamlit application. Run from the project root:
 
@@ -27,7 +27,7 @@ from src import social
 
 st.set_page_config(page_title="CyberShield", page_icon="🛡️", layout="wide")
 
-DEFAULT_THRESHOLD = 0.60
+DEFAULT_THRESHOLD = 0.50
 PAGES = ["Home", "Dataset Statistics", "Data Preprocessing",
          "Cyberbully Detection", "Model Evaluation"]
 
@@ -35,7 +35,7 @@ MODEL_INFO = {
     "Logistic Regression": {
         "feature_method": "TF-IDF (unigrams + bigrams, 30,000 features)",
         "algorithm_type": "Linear classifier (One-vs-Rest, one per label)",
-        "note": "Fast, well-calibrated probabilities, easy to interpret.",
+        "note": "Fast fitted probabilities and relatively interpretable coefficients.",
     },
     "Linear SVM": {
         "feature_method": "TF-IDF (unigrams + bigrams, 30,000 features)",
@@ -103,7 +103,7 @@ def analyze_many(bundle, texts, threshold):
         flagged = [l for l in labels if probs[l] >= threshold]
         top_score = max(probs.values())
         # Confidence always reflects certainty in the VERDICT SHOWN, in both
-        # directions - if flagged, higher = more sure it's cyberbullying (the
+        # directions - if flagged, higher = more sure the comment matches the adapted harmful-content labels (the
         # raw top score already means this). If clean, higher = more sure
         # it's clean, i.e. how far the top score sits below the threshold
         # (1 - top_score) - NOT the raw top score itself, which would
@@ -163,7 +163,7 @@ def batch_suggestion(df):
         return ""
     rate = n_bad / n
     if n_bad == 0:
-        return "✅ **No cyberbullying detected in this batch.** No action needed."
+        return "✅ **No harmful-content label crossed the threshold in this batch.** No action needed."
     msg = f"⚠️ **{n_bad} of {n} comments ({rate:.0%}) were flagged.**\n\n"
     if rate >= 0.3:
         msg += ("This is a high proportion — consider reviewing the source "
@@ -182,7 +182,7 @@ def result_card(res, threshold, model_name, elapsed, original_text):
     if res["is_bully"]:
         st.error("### ⚠️ CYBERBULLYING DETECTED")
     else:
-        st.success("### ✅ No cyberbullying detected")
+        st.success("### ✅ No harmful-content label crossed the threshold")
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Model used", model_name)
@@ -228,7 +228,7 @@ def summary_charts(df):
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.pie(counts.values, labels=counts.index, autopct="%1.1f%%",
                colors=["#c0392b" if i == "YES" else "#27ae60" for i in counts.index])
-        ax.set_title("Cyberbullying vs Clean")
+        ax.set_title("Flagged vs Not Flagged")
         st.pyplot(fig); plt.close(fig)
     with c2:
         cat_cols = [pretty(l) for l in LABELS]
@@ -278,7 +278,7 @@ def page_controls(show_model=True, show_threshold=True, key_prefix=""):
                 help=f"Lower = flags more comments (higher recall). Higher = "
                      f"stricter (higher precision). This model's evidence-based "
                      f"default is {model_default:.2f} — it's pre-selected when "
-                     f"you pick this model. Official reported metrics use 0.50.")
+                     f"you pick this model. Official reported metrics use the fixed validation-selected threshold for this model.")
     st.write("")
 
 
@@ -379,7 +379,7 @@ page = st.session_state.page
 # ============================================================== Home
 if page == "Home":
     st.title("🛡️ CyberShield")
-    st.caption("Multi-model NLP system for detecting and categorising cyberbullying")
+    st.caption("Multi-model NLP system for detecting adapted harmful-content and target-community labels")
 
     st.markdown("### Project Introduction")
     st.write("""
@@ -392,7 +392,7 @@ so that harmful comments can be flagged before they spread or cause lasting harm
 
     st.markdown("### Project Objectives")
     st.markdown("""
-1. Detect whether a given comment contains cyberbullying / hate speech.
+1. Detect whether a given comment matches the adapted abusive/harmful-content labels.
 2. Identify **which group is targeted** (race, religion, gender, etc.), not just yes/no.
 3. Implement and fairly **compare three different NLP models** on the same data.
 4. Evaluate model performance using standard classification metrics.
@@ -401,7 +401,7 @@ so that harmful comments can be flagged before they spread or cause lasting harm
 
     st.markdown("### NLP Task")
     st.write("""
-CyberShield frames cyberbullying detection as a **text classification**
+CyberShield frames the task as a **multi-label text classification**
 problem — specifically **multi-label** classification, since one comment can
 belong to more than one category at once (e.g. abusive *and* targeting race).
 **Input:** a raw comment (free text). **Output:** six independent yes/no
@@ -977,7 +977,7 @@ your report's limitations section.
 - **Fastest to predict:** {fastest_predict}
 
 **Strengths & weaknesses:**
-- **Logistic Regression** — fast, well-calibrated, strong overall balance; a
+- **Logistic Regression** — fast, strong overall balance, with fitted probability estimates; a
   solid default choice.
 - **Linear SVM** — competitive accuracy, but no native probability estimates
   (confidence is derived, not directly modeled) and slightly lower recall on

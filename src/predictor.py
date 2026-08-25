@@ -42,6 +42,8 @@ def load_model(path):
     (n_jobs=1) evaluation of a single row is typically faster in practice.
     """
     bundle = joblib.load(path)
+    if "threshold" not in bundle:
+        bundle["threshold"] = 0.50
     try:
         clf = bundle["pipeline"].named_steps.get("clf")
         estimators = getattr(clf, "estimators_", None) or []
@@ -152,13 +154,6 @@ def _influential_words(pipeline, cleaned, labels, flagged, top_k=8):
             w_full = np.asarray(est.coef_).ravel()
         elif hasattr(est, "feature_importances_"):  # Random Forest
             w_full = est.feature_importances_
-        elif hasattr(est, "feature_log_prob_"):     # Multinomial Naive Bayes
-            # feature_log_prob_ is (n_classes, n_features): log P(word | class).
-            # The log-odds ratio (positive class vs negative class) gives a
-            # signed "how much does this word push toward abusive" score,
-            # analogous to a linear model's coefficient.
-            log_prob = est.feature_log_prob_
-            w_full = log_prob[1] - log_prob[0] if log_prob.shape[0] == 2 else log_prob[0]
         else:
             continue
         w = w_full[start:end]             # slice out just the word-feature weights

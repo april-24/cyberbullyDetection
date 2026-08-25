@@ -11,12 +11,6 @@ the **influential words**, and **compares three machine-learning models**.
 | Member 1 | **Logistic Regression** + TF-IDF | `models/member1_logistic_regression.py` |
 | Member 2 | **Linear SVM** + TF-IDF | `models/member2_svm.py` |
 | Member 3 | **Random Forest** + TF-IDF | `models/member3_random_forest.py` |
-| *(optional, for testing)* | **Naive Bayes** + TF-IDF | `models/naive_bayes_extra.py` |
-
-The optional 4th model is included in the app so you can compare it against
-the three required methods before deciding whether to keep it — it is **not**
-one of the assignment's three required methods unless you choose to swap it
-in for one of the above.
 
 ---
 
@@ -115,15 +109,12 @@ without an API key — the app always labels demo data as such.
 
 | Model | Accuracy | Micro-F1 | Macro-F1 | Subset Acc. | Model Size | Train Time | Predict Time |
 |-------|:--------:|:--------:|:--------:|:-----------:|:----------:|:----------:|:------------:|
-| **Naive Bayes**† | **0.842** | 0.696 | 0.643 | 0.383 | ~4 MB | **3.1s** | 0.45s |
 | Logistic Regression | 0.836 | **0.706** | **0.679** | 0.369 | ~2 MB | 5.8s | 0.48s |
 | Random Forest | 0.835 | 0.690 | 0.679 | 0.353 | ~6.5 MB | 8.9s | 0.53s |
 | Linear SVM | 0.829 | 0.688 | 0.652 | 0.352 | ~2 MB | 8.5s | 0.48s |
 
-†Naive Bayes is an **optional 4th model** (`models/naive_bayes_extra.py`), not one
-of the assignment's three required methods — included so you can compare it
-against the required three and decide for yourselves. See `results/model_scores.csv`
-for the full metric set (precision/recall/F1 in micro, macro, *and* weighted averaging).
+See `results/model_scores.csv` for the full metric set (precision/recall/F1
+in micro, macro, *and* weighted averaging).
 
 ### Per-model detection thresholds — read this before comparing models in the app
 
@@ -138,7 +129,6 @@ forcing a shared 0.60 threshold instead of each model's own best:
 | Logistic Regression | 0.46 | 0.707 | 0.693 |
 | Linear SVM | 0.48 | 0.693 | 0.622 |
 | Random Forest | 0.48 | 0.701 | **0.555** ← biggest hit |
-| Naive Bayes | 0.32 | 0.712 | 0.678 |
 
 This is why the app auto-selects each model's own threshold when you switch
 between them (see `src/config.py`'s `DEFAULT_THRESHOLDS`) — it's the
@@ -150,11 +140,11 @@ exact trained model, not the algorithm in general.
 **Discussion points for your report:**
 - All models use the **same underlying text-cleaning pipeline** (including
   evasion normalization — see below), but different feature-extraction detail:
-  Logistic Regression/SVM/Naive Bayes use word bigrams + character n-grams;
-  Random Forest uses a smaller word-unigram vocabulary (kept intentionally
-  small — a larger feature set was tested and didn't meaningfully improve its
+  Logistic Regression and SVM use word bigrams + character n-grams; Random
+  Forest uses a smaller word-unigram vocabulary (kept intentionally small — a
+  larger feature set was tested and didn't meaningfully improve its
   real-world detection, only its file size and training time).
-- **Random Forest's confidence scores run more conservative** than the other
+- **Random Forest's confidence scores run more conservative** than the linear
   models', even on comments it classifies correctly — a well-documented
   structural property of ensemble voting over sparse, high-dimensional text
   (each split only sees a random subset of features, so short comments often
@@ -164,6 +154,30 @@ exact trained model, not the algorithm in general.
   trade-off elsewhere. The per-model threshold above is the practical
   mitigation that actually works. This whole investigation is legitimate,
   citable content for your report's model comparison and limitations sections.
+
+### A specific, measured limitation: single trigger words can dominate a prediction
+
+Testing surfaced concrete cases worth citing directly. The standalone word
+**"sand"** gets flagged as Race/Religion-related abuse by every model, and
+**"white color is my favorite color"** gets flagged as Race-related by every
+model — both clearly wrong readings of genuinely neutral text. This traces
+directly to the training data, not a preprocessing bug:
+
+- Of 321 HateXplain training comments containing the word "sand", **95% are
+  labeled Race** — almost entirely instances of the slur "sand n-word".
+- Of 3,278 comments containing "white", **47.7% are labeled Race**, well
+  above the dataset's ~32.5% Race base rate.
+
+Bag-of-words models like these have no way to separate "sand" (a compound
+slur) from "sand" (a beach) — they only see word-level co-occurrence
+statistics. This is a well-documented failure mode in hate-speech
+classification research (see e.g. studies on "identity term bias" in
+toxicity classifiers), and it's exactly why more diverse labeled training
+data — including *benign* uses of commonly-flagged words — is worth
+collecting (see "Want more data?" below). A related, harder-to-fix factor:
+HateXplain's overall base rate for "abusive" is **61%**, so short or
+ambiguous text with no strong signal either way tends to default toward the
+majority class rather than "clean".
 - **Subset accuracy looks low (~0.35-0.38)** because it demands *all six*
   labels be correct simultaneously. That is normal and expected for
   multi-label tasks — **Accuracy** (per-label average, ~83-85%) is the fairer,
@@ -181,20 +195,27 @@ being destroyed:
 
 | Trick | Example | Normalized to |
 |-------|---------|---------------|
-| Leetspeak substitution | `n1gg4`, `sh1t`, `@sshole` | `nigga`, `shit`, `asshole` |
+| Leetspeak substitution | `n1gg4`, `sh1t` | `nigga`, `shit` |
 | Spaced-out letters | `n.i.g.g.a`, `s h i t` | `nigga`, `shit` |
 | Repeated-character spam | `stuuuupid` | `stupid` |
 
+A leading `@` (e.g. `@sshole`) is deliberately **stripped**, not substituted
+to `a` — testing showed substituting it caused more false positives (via
+garbled `@mention` text like `@something` → `asomething`) than it prevented
+evasion, since genuine `@mentions` are far more common in real text than
+leading-`@` evasion. `@` occurring *mid-word* (e.g. `a@@hole`) is still
+substituted, since that pattern is unambiguously deliberate.
+
 This is **not a complete solution** — evasion detection is fundamentally an
 arms race, and new obfuscation tricks will always exist. As a second,
-complementary layer, most models (Logistic Regression, SVM, Naive Bayes) also
-use **character n-gram features** (3-5 letter chunks), which can catch
-obfuscation patterns the explicit rules above don't know about, because a
-lightly disguised word still shares most of its character substrings with the
-original. Random Forest uses a smaller word-only feature set instead (see the
-Results section for why). Both points are worth stating plainly in your
-report's limitations section — being upfront about what a detection system
-*can't* fully solve is a stronger academic position than implying it's solved.
+complementary layer, Logistic Regression and SVM also use **character n-gram
+features** (3-5 letter chunks), which can catch obfuscation patterns the
+explicit rules above don't know about, because a lightly disguised word still
+shares most of its character substrings with the original. Random Forest uses
+a smaller word-only feature set instead (see the Results section for why).
+Both points are worth stating plainly in your report's limitations section —
+being upfront about what a detection system *can't* fully solve is a
+stronger academic position than implying it's solved.
 
 ---
 
@@ -220,11 +241,13 @@ report's limitations section — being upfront about what a detection system
 
 ---
 
-## Want more data? Collect Malaysian comments (optional)
+## Want more data? Collect more English comments (optional)
 
 The `crawler/` folder has tools to legally collect and label more comment
-data, with a focus on Malaysia — useful if you want the models to reflect
-local slang/context, or as an "extra effort" feature for a higher grade.
+data, focused on English content specifically chosen to strengthen the two
+weakest-performing categories (Gender and Miscellaneous) — useful as an
+"extra effort" feature for a higher grade, and as a direct, measurable
+response to a specific weakness rather than a generic add-on.
 
 ```bash
 python crawler/youtube_batch_crawler.py     # collect (official YouTube API)
@@ -281,7 +304,7 @@ cyberbully_detection/
 - **(c) Crawler *or* reliable dataset** — the assignment allows either. We use
   both: the public **HateXplain** dataset (a reliable, peer-reviewed source)
   as the base, *plus* actual crawler tools (`crawler/`) to collect additional
-  real-world Malaysian comments via official APIs (YouTube, Reddit) which you
+  real-world English comments via official APIs (YouTube, Reddit) which you
   can label and merge in — see `crawler/CRAWLING_GUIDE.md`.
 - **(d) Preprocessing** — cleaning (URLs, mentions, punctuation, special
   characters), **tokenisation**, stop-word removal, **lemmatisation** (used in
@@ -333,10 +356,12 @@ have time left before the deadline — roughly ordered by effort:
   applies to all 6 categories. Tuning a separate optimal threshold per
   category (maximizing F1 per label on a validation split) is a legitimate
   technique and would likely raise macro-F1 measurably.
-- **Malay-language preprocessing.** The current pipeline is English-tuned
-  (English stopwords/lemmatizer). Adding a Malay stopword list and even basic
-  Malay-aware tokenization would directly strengthen the Malaysia angle of
-  this project, and ties directly into the crawler/labeling work already built.
+- **Targeted data collection for weak categories.** Gender and Miscellaneous
+  have the lowest F1 across all models because they have the fewest training
+  examples — the crawler tools are already configured to target this
+  specifically (see `crawler/CRAWLING_GUIDE.md`). Tracking Gender/Miscellaneous
+  F1 before and after adding your own labeled data is concrete, citable
+  evidence for your report.
 
 **Higher effort, strong differentiator:**
 - **User study / usability evaluation.** Have a few classmates or friends use
@@ -360,3 +385,9 @@ have time left before the deadline — roughly ordered by effort:
 - **NLTK download errors** — the code falls back to a built-in stop-word list and
   still runs.
 - **Reddit fetch fails** — Reddit rate-limits automated requests; wait and retry.
+
+
+## Evaluation protocol (revised)
+The benchmark uses a leakage-safe 60/20/20 train/validation/final-test split. TF-IDF vectorisers are fitted only on the training partition. Model-specific decision thresholds are selected using validation micro-F1 and then frozen before the final test evaluation. The final test set is not used for threshold selection or model tuning.
+
+The system uses HateXplain-derived labels. Because HateXplain is a hate/offensive-content benchmark rather than a dedicated cyberbullying dataset, the prototype should be described as cyberbullying-oriented harmful-content detection. The six outputs are an adapted abusive indicator plus five target-community indicators.

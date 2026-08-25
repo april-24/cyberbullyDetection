@@ -29,14 +29,12 @@ try:
     from nltk.stem import WordNetLemmatizer
     from nltk.tokenize import word_tokenize
 
-    for pkg in ["punkt", "punkt_tab", "stopwords", "wordnet", "omw-1.4"]:
-        try:
-            nltk.download(pkg, quiet=True)
-        except Exception:
-            pass
-
+    # Do not attempt network downloads during training/deployment. If the
+    # required NLTK corpora are unavailable locally, fall back deterministically
+    # to the built-in stopword list and whitespace tokenisation.
     _STOPWORDS = set(stopwords.words("english"))
     _LEMMATIZER = WordNetLemmatizer()
+    _ = word_tokenize("local check")
 except Exception:
     _USE_NLTK = False
     _LEMMATIZER = None
@@ -64,14 +62,14 @@ _RE_SPACES = re.compile(r"\s+")
 #   2. Spaced-out letters:      n.i.g.g.a, s h i t      -> collapsed together
 #   3. Repeated-character spam: nigggggga, stuuupid     -> collapsed down
 #
-# A DELIBERATE TRADE-OFF, worth noting in your report: leetspeak substitution
-# maps '@' -> 'a' unconditionally, because there's no reliable way to tell
-# "@sshole" (evasion) apart from "@someone" (a genuine @mention) by pattern
-# alone. This pipeline no longer does dedicated @mention stripping - mentions
-# just become harmless out-of-vocabulary noise (e.g. "@johndoe" -> "ajohndoe",
-# which never matches real training vocabulary) instead of being cleanly
-# removed. Catching the evasion pattern was judged more valuable than tidy
-# mention removal, which was low-signal either way.
+# A DELIBERATE TRADE-OFF, worth noting in your report: leading '@' characters
+# (e.g. "@johndoe") are stripped as mention markers, same as before evasion
+# normalization was added - real-world testing showed substituting a leading
+# '@' to 'a' (e.g. "@something" -> "asomething") produced garbled,
+# out-of-vocabulary tokens that triggered false positives via the character
+# n-gram features far more often than it caught genuine evasion. '@'
+# occurring mid-word (e.g. "a@@hole") is still substituted to 'a', since
+# that pattern is unambiguously a deliberate evasion attempt, not a mention.
 #
 # IMPORTANT (also worth a line in your report): this catches the common,
 # well-known evasion patterns, but it is not a complete solution - evasion is
@@ -122,7 +120,19 @@ def _collapse_spaced_letters(match: "re.Match") -> str:
 def _leet_substitute_token(token: str) -> str:
     """Apply leet substitution only within tokens that already contain at
     least one real letter - this stops standalone numbers like '100' or '3'
-    (no letters at all) from being garbled into fake words like 'ioo'."""
+    (no letters at all) from being garbled into fake words like 'ioo'.
+
+    A LEADING '@' is stripped outright rather than substituted to 'a' - real
+    testing showed substituting it (e.g. "@something" -> "asomething") was
+    producing garbled, out-of-vocabulary tokens that triggered false-positive
+    detections via the character n-gram features, which happened far more
+    often in practice than it caught genuine leading-@ evasion (e.g.
+    "@sshole"). Since "@johndoe"-style @mentions are the overwhelmingly more
+    common real-world pattern, this trade-off was reversed: mentions are
+    now stripped cleanly again, and '@' occurring mid-word (a rarer, more
+    deliberate evasion pattern, e.g. "a@@hole") is still substituted."""
+    if token.startswith("@"):
+        token = token.lstrip("@")
     if not any(c.isalpha() for c in token):
         return token
     return _LEET_PATTERN.sub(lambda m: _LEET_SUBS[m.group(0)], token)

@@ -1,41 +1,25 @@
 """
 train_utils.py
 --------------
-Shared routine used by all three member scripts: load data -> fit the pipeline ->
-evaluate -> save the model. Keeps each member's file focused on just their model.
-"""
+Shared routine used by all three model scripts.
 
+The routine enforces a leakage-safe 60/20/20 train/validation/test protocol:
+the pipeline is fitted only on training data; the validation set is used to
+select the model-specific decision threshold; the final test set is evaluated
+once using that fixed threshold.
+"""
 import os
 import time
 import joblib
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import FeatureUnion
+from sklearn.metrics import f1_score
 from .common import prepare_data
 from .evaluate import evaluate_model, save_result
 
-
 def build_word_char_features(word_max_features=30000, char_max_features=10000,
                              word_ngram_range=(1, 2)):
-    """
-    A FeatureUnion of WORD-level and CHARACTER-level TF-IDF, used by all three
-    models so the comparison stays fair.
-
-    Why character n-grams too, not just words: word-level TF-IDF only
-    recognizes a word if it appears EXACTLY as seen during training. That
-    makes it easy to dodge with obfuscation the text-cleaning step doesn't
-    already catch (unusual substitutions, deliberate misspellings, etc.).
-    Character n-grams (3-5 letter chunks, e.g. "idi", "dio", "iot" from
-    "idiot") are much harder to evade, because a lightly disguised word still
-    shares most of its character substrings with the original - this is a
-    standard technique in hate-speech/toxic-comment classification literature
-    for exactly this robustness reason. It also gives models with a smaller
-    word vocabulary (like the Random Forest here) meaningfully more signal to
-    work with, since sub-word patterns repeat across many different words.
-
-    Word-level features remain primary (larger max_features, unigrams +
-    bigrams) since they carry most of the interpretable signal used for
-    highlighting influential words in the app.
-    """
     return FeatureUnion([
         ("word", TfidfVectorizer(max_features=word_max_features,
                                  ngram_range=word_ngram_range,
@@ -45,26 +29,51 @@ def build_word_char_features(word_max_features=30000, char_max_features=10000,
                                  min_df=2, sublinear_tf=True)),
     ])
 
+def _scores(pipeline, texts):
+    try:
+        return np.asarray(pipeline.predict_proba(texts))
+    except (AttributeError, RuntimeError):
+        d = np.asarray(pipeline.decision_function(texts))
+        if d.ndim == 1:
+            d = d.reshape(1, -1)
+        return 1.0 / (1.0 + np.exp(-d))
+
+def select_threshold(pipeline, X_val, y_val, step=0.02, lo=0.20, hi=0.86):
+    """Select threshold using validation data only."""
+    P = _scores(pipeline, list(X_val))
+    best_th, best_f1 = 0.50, -1.0
+    for th in np.arange(lo, hi + 1e-9, step):
+        pred = (P >= th).astype(int)
+        f1 = f1_score(y_val.values, pred, average="micro", zero_division=0)
+        if f1 > best_f1:
+            best_th, best_f1 = float(th), float(f1)
+    return round(best_th, 2), float(best_f1)
 
 def train_and_save(model_name, pipeline, model_path, sample=None):
-    """Fit `pipeline`, print/save metrics, and save the model bundle to disk."""
-    X_train, X_test, y_train, y_test, labels = prepare_data(sample=sample)
+    X_train, X_val, X_test, y_train, y_val, y_test, labels = prepare_data(sample=sample)
 
     print(f"\nTraining {model_name} ...")
     t0 = time.time()
     pipeline.fit(X_train, y_train)
     train_time = time.time() - t0
 
+    threshold, val_f1 = select_threshold(pipeline, X_val, y_val)
+    print(f"Validation-selected threshold: {threshold:.2f} (validation micro-F1={val_f1:.4f})")
+
     t0 = time.time()
-    y_pred = pipeline.predict(X_test)
+    test_scores = _scores(pipeline, list(X_test))
+    y_pred = (test_scores >= threshold).astype(int)
     predict_time = time.time() - t0
 
     result = evaluate_model(model_name, y_test.values, y_pred, labels,
-                            train_time=train_time, predict_time=predict_time)
+                            train_time=train_time, predict_time=predict_time,
+                            threshold=threshold, validation_f1=val_f1)
     save_result(result)
 
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    # compress=3 keeps Random Forest files small (~6 MB instead of ~170 MB)
-    joblib.dump({"pipeline": pipeline, "labels": labels}, model_path, compress=3)
+    joblib.dump({"pipeline": pipeline, "labels": labels,
+                 "threshold": threshold,
+                 "validation_micro_f1": val_f1}, model_path, compress=3)
     print(f"Saved trained model -> {model_path}")
     return pipeline
+

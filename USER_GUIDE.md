@@ -24,8 +24,16 @@ On the **Cyberbully Detection** page, you'll see two controls near the top:
 
 | Control | What it does |
 |---------|---------------|
-| **Model** | Choose which trained model performs the detection: Logistic Regression, Linear SVM, and Random Forest (the assignment's three required methods), plus an optional 4th — Naive Bayes — included for you to compare and test. |
+| **Model** | Choose which trained model performs the detection: Logistic Regression, Linear SVM, or Random Forest. |
 | **Detection sensitivity (threshold)** | How confident the model must be before it flags something as cyberbullying. **Lower** = flags more comments (catches more, but more false alarms). **Higher** = stricter (fewer false alarms, may miss some). **Each model has its own default** — the slider auto-resets to that model's own evidence-based best value whenever you switch models, since different algorithms produce confidence scores on different scales. |
+
+**Reading "Top confidence" / "Confidence":** this number always means "how
+sure the system is about the verdict shown" — for both possible verdicts.
+If the verdict is **Cyberbullying**, a higher percentage means more sure it
+*is* cyberbullying. If the verdict is **Clean**, a higher percentage means
+more sure it's *clean* (not the other way around) — so a "Clean" result
+with 95% confidence is a clearer, more obvious non-issue than a "Clean"
+result with 55% confidence, which was a closer call.
 
 These apply across all three tabs on that page (Enter Comment, Import CSV,
 Social Media URL). You don't need to touch them to use the app — the
