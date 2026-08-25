@@ -50,14 +50,6 @@ MODEL_INFO = {
                "tree ensembles on sparse text) - its own lower default "
                "threshold compensates for this.",
     },
-    "Naive Bayes": {
-        "feature_method": "TF-IDF (unigrams + bigrams + char n-grams, ~23,000 features)",
-        "algorithm_type": "Probabilistic classifier over word/n-gram frequencies (One-vs-Rest)",
-        "note": "Optional 4th model, not one of the assignment's three required "
-               "methods - included for comparison. Well-suited to sparse text "
-               "count data; confidence scores tend to run to extremes (near 0% "
-               "or 100%) due to its feature-independence assumption.",
-    },
 }
 
 # Minimal, website-style top navigation: plain text links, not big colored
@@ -109,14 +101,25 @@ def analyze_many(bundle, texts, threshold):
     for i, t in enumerate(texts):
         probs = {l: float(P[i][j]) for j, l in enumerate(labels)}
         flagged = [l for l in labels if probs[l] >= threshold]
+        top_score = max(probs.values())
+        # Confidence always reflects certainty in the VERDICT SHOWN, in both
+        # directions - if flagged, higher = more sure it's cyberbullying (the
+        # raw top score already means this). If clean, higher = more sure
+        # it's clean, i.e. how far the top score sits below the threshold
+        # (1 - top_score) - NOT the raw top score itself, which would
+        # misleadingly look like low confidence for an obviously clean
+        # comment (e.g. a 5% top score is very confidently clean, not
+        # "5% confident").
+        confidence = top_score if flagged else (1 - top_score)
         rows.append({
             "Comment": t,
             "Cyberbullying": "YES" if flagged else "NO",
             "Categories": ", ".join(pretty(l) for l in flagged) or "-",
-            "Confidence": round(max(probs.values()), 3),
+            "Confidence": round(confidence, 3),
             **{pretty(l): round(probs[l], 3) for l in labels},
         })
     return pd.DataFrame(rows)
+
 
 
 def suggested_action(res):
@@ -183,7 +186,13 @@ def result_card(res, threshold, model_name, elapsed, original_text):
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Model used", model_name)
-    c2.metric("Top confidence", f"{max(res['probs'].values()):.1%}")
+    top_score = max(res["probs"].values())
+    # Same logic as analyze_many(): higher always means "more confident in
+    # the verdict shown", in both directions - not just the raw top score,
+    # which would misleadingly look like low confidence for a clearly clean
+    # comment (e.g. a 5% top score is very confidently clean, not "5% sure").
+    top_confidence = top_score if res["is_bully"] else (1 - top_score)
+    c2.metric("Top confidence", f"{top_confidence:.1%}")
     c3.metric("Processing time", f"{elapsed*1000:.0f} ms")
 
     if res["flagged"]:
@@ -400,9 +409,6 @@ predictions, one per category, each with a confidence score.
 """)
 
     st.markdown("### Implemented NLP Models")
-    st.caption("The first three are the assignment's required methods. Any "
-              "additional model listed (e.g. Naive Bayes) is an optional "
-              "extra included for comparison, not a required method.")
     for name, info in MODEL_INFO.items():
         if name not in MODELS:
             continue
@@ -853,12 +859,17 @@ elif page == "Model Evaluation":
             model_threshold = DEFAULT_THRESHOLDS.get(name, 0.5)
             t0 = time.time()
             r = predict(b, text, threshold=model_threshold)
+            top_score = max(r["probs"].values())
+            # Same verdict-aware logic as elsewhere: higher always means
+            # "more confident in THIS model's own verdict", not just the
+            # raw top score (which looks backwards for a "Clean" verdict).
+            top_confidence = top_score if r["is_bully"] else (1 - top_score)
             rows.append({
                 "Model": name,
                 "Threshold used": model_threshold,
                 "Prediction": "CYBERBULLYING" if r["is_bully"] else "Clean",
                 "Categories": ", ".join(pretty(l) for l in r["flagged"]) or "-",
-                "Top confidence": round(max(r["probs"].values()), 3),
+                "Top confidence": round(top_confidence, 3),
                 "Time (ms)": round((time.time() - t0) * 1000, 1),
                 **{pretty(l): round(r["probs"][l], 3) for l in LABELS},
             })
